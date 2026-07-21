@@ -1,21 +1,28 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElNotification } from 'element-plus'
 import { Bell } from '@element-plus/icons-vue'
 import api from './api'
 import { useAlertStore } from './stores/alert'
+import { useSettingsStore } from './stores/settings'
+import { createPoller } from './utils/poller'
 
 const router = useRouter()
 const alertStore = useAlertStore()
+const settingsStore = useSettingsStore()
 const lastAlertId = ref(0)
-let alertTimer = null
+const initialized = ref(false)
+const alertPoller = createPoller(checkAlerts)
 
 async function checkAlerts() {
   try {
     const res = await api.get('/alerts?unread=true&size=1')
     const alerts = res.data.items || []
-    if (alerts.length > 0 && alerts[0].id !== lastAlertId.value) {
+    if (!initialized.value) {
+      lastAlertId.value = alerts[0]?.id || 0
+      initialized.value = true
+    } else if (alerts.length > 0 && alerts[0].id !== lastAlertId.value) {
       lastAlertId.value = alerts[0].id
       const a = alerts[0]
       ElNotification({
@@ -31,13 +38,21 @@ async function checkAlerts() {
   alertStore.fetchUnreadCount()
 }
 
-onMounted(() => {
+function startAlertPolling() {
+  alertPoller.start(settingsStore.pollInterval)
+}
+
+onMounted(async () => {
+  await settingsStore.fetchSettings()
   alertStore.fetchUnreadCount()
-  alertTimer = setInterval(checkAlerts, 10000)
+  await checkAlerts()
+  startAlertPolling()
 })
 
+watch(() => settingsStore.pollInterval, startAlertPolling)
+
 onUnmounted(() => {
-  clearInterval(alertTimer)
+  alertPoller.stop()
 })
 </script>
 

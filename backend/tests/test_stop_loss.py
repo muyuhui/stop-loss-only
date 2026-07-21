@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+from decimal import Decimal
 from services.stop_loss import StopLossEngine
 
 
@@ -13,28 +14,28 @@ class TestStopLossEngine:
             buy_price=10.0, highest_price=10.0,
             method="fixed", value=9.0
         )
-        assert price == 9.0
+        assert price == Decimal("9.0000")
 
     def test_percentage_stop_loss(self):
         price = StopLossEngine.calculate(
             buy_price=10.0, highest_price=10.0,
             method="percentage", value=10
         )
-        assert price == 9.0
+        assert price == Decimal("9.0000")
 
     def test_trailing_initial(self):
         price = StopLossEngine.calculate(
             buy_price=10.0, highest_price=10.0,
             method="trailing", value=10
         )
-        assert price == 9.0
+        assert price == Decimal("9.0000")
 
     def test_trailing_rises_with_price(self):
         price = StopLossEngine.calculate(
             buy_price=10.0, highest_price=18.0,
             method="trailing", value=10
         )
-        assert price == 16.2
+        assert price == Decimal("16.2000")
 
     def test_trigger_when_below(self):
         assert StopLossEngine.is_triggered(8.80, 9.0) is True

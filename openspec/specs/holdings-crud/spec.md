@@ -7,67 +7,91 @@ Manage investment holdings (A-share stocks and funds) with create, read, update,
 ## Requirements
 
 ### Requirement: Create a holding
-The system SHALL allow users to create a new holding with asset code, name, type (stock/fund), buy price, quantity, buy date, stop-loss method, and stop-loss value.
+系统 SHALL 使用经过校验的资产和止损数据新建持仓，初始状态为 `holding`，在首次行情到达前把现价和最高价设为买入价，并计算、保存、返回止损价。
 
-#### Scenario: Create stock holding with fixed stop-loss
-- **WHEN** user submits {code: "000001", name: "平安银行", type: "stock", buy_price: 10.00, quantity: 1000, buy_date: "2026-01-15", stop_loss_method: "fixed", stop_loss_value: 9.00}
-- **THEN** a new holding is created with status "holding" and highest_price initialized to buy_price
+#### Scenario: 新建固定止损股票
+- **WHEN** 用户提交代码 `000001`、买入价 `10.00`、固定止损值 `9.00`
+- **THEN** 数据库和响应中的状态为 `holding`、最高价为 `10.00`、止损价为 `9.00`
 
-#### Scenario: Create fund holding with percentage stop-loss
-- **WHEN** user submits {code: "510050", name: "上证50ETF", type: "fund", buy_price: 2.50, quantity: 10000, buy_date: "2026-01-10", stop_loss_method: "percentage", stop_loss_value: 10}
-- **THEN** a new holding is created with stop_loss_method "percentage" and stop_loss_value 10
+#### Scenario: 新建百分比止损基金
+- **WHEN** 用户提交买入价 `2.50`、百分比止损值 `10`
+- **THEN** 数据库和响应中的止损价为 `2.25`
 
 #### Scenario: Create holding with trailing stop-loss
 - **WHEN** user submits {type: "stock", stop_loss_method: "trailing", stop_loss_value: 8}
 - **THEN** a new holding is created with stop_loss_method "trailing" and stop_loss_value 8
 
-#### Scenario: Create holding with invalid data
-- **WHEN** user submits a holding with missing required fields (e.g., no code)
-- **THEN** system returns 422 with validation error details
+#### Scenario: 新建数据非法
+- **WHEN** 缺少必填字段或止损校验失败
+- **THEN** 系统返回 422，且不创建持仓
 
 ### Requirement: List all holdings
-The system SHALL return a paginated list of all holdings ordered by creation date descending.
+系统 SHALL 按创建时间和 ID 倒序返回稳定分页结果，支持经过校验的生命周期状态筛选，并返回一致的派生字段。
 
-#### Scenario: List holdings with default pagination
-- **WHEN** user requests GET /api/holdings
-- **THEN** system returns the first page of holdings with total count
+#### Scenario: 使用默认分页
+- **WHEN** 用户不带分页参数请求 `GET /api/holdings`
+- **THEN** 响应包含首页以及 `items`、`total`、`page`、`size`
 
-#### Scenario: Filter holdings by status
-- **WHEN** user requests GET /api/holdings?status=holding
-- **THEN** system returns only holdings with status "holding"
+#### Scenario: 请求后续页
+- **WHEN** 用户提交有效 page 和 size
+- **THEN** items 只包含对应切片，total 表示全部匹配记录数
+
+#### Scenario: 按状态筛选
+- **WHEN** 用户提交已识别的生命周期状态
+- **THEN** 只统计并返回该状态持仓
+
+#### Scenario: 分页或状态非法
+- **WHEN** page、size 或 status 超出约定范围
+- **THEN** 系统返回 422
 
 ### Requirement: Get holding detail
-The system SHALL return the full detail of a single holding by ID, including calculated stop-loss price and current profit/loss percentage.
+系统 SHALL 返回单笔持仓的完整持久化详情，包括止损价、行情元数据、生命周期状态、收益率和止损距离。
 
-#### Scenario: Get an existing holding
-- **WHEN** user requests GET /api/holdings/{id} for an existing holding
-- **THEN** system returns the holding with all fields including current_price, stop_loss_price, profit_loss_pct, stop_loss_distance_pct
+#### Scenario: 查询存在的持仓
+- **WHEN** 用户查询已存在的 ID
+- **THEN** 详情中的止损价和派生字段与列表、仪表盘中的同一快照一致
 
-#### Scenario: Get a non-existent holding
-- **WHEN** user requests GET /api/holdings/{id} for a non-existent ID
-- **THEN** system returns 404
+#### Scenario: 查询不存在的持仓
+- **WHEN** 用户查询未知 ID
+- **THEN** 系统返回 404
 
 ### Requirement: Update holding
-The system SHALL allow users to update a holding's stop-loss settings (method, value) and optionally name or other metadata fields.
+系统 SHALL 校验允许修改的元数据和止损参数，原子地重新计算并保存派生止损价，并按生命周期限制修改。
 
-#### Scenario: Change stop-loss method from fixed to trailing
-- **WHEN** user updates a holding's stop_loss_method to "trailing" and stop_loss_value to 10
-- **THEN** the holding's stop-loss config is updated and highest_price is recalculated if needed
+#### Scenario: 修改止损方式
+- **WHEN** 用户把活动持仓从固定止损改为有效的移动止损
+- **THEN** 系统保存并返回新方式、参数和重算后的止损价
 
-#### Scenario: Update a stopped-out holding
-- **WHEN** user attempts to update a holding with status "stopped_out"
-- **THEN** system returns 400 with message "已止损的持仓不可修改"
+#### Scenario: 修改已触发或已关闭持仓
+- **WHEN** 用户修改 `triggered` 或 `closed` 持仓的止损设置
+- **THEN** 系统返回 400，持仓不变化
+
+#### Scenario: 修改校验失败
+- **WHEN** 现有字段与提交字段组合后无效
+- **THEN** 系统返回 422，所有提交字段均不保存
 
 ### Requirement: Delete a holding
-The system SHALL allow users to delete a holding record.
+系统 SHALL 删除生命周期规则允许删除的持仓，保留独立告警快照，并返回无响应体的 HTTP 204。
 
-#### Scenario: Delete an active holding
-- **WHEN** user requests DELETE /api/holdings/{id}
-- **THEN** the holding is removed from the database and returns 204
+#### Scenario: 成功删除持仓
+- **WHEN** 用户删除允许删除的持仓
+- **THEN** 持仓被移除、历史告警仍可读取，响应为无正文 204
+
+#### Scenario: 删除不存在的持仓
+- **WHEN** 用户删除未知 ID
+- **THEN** 系统返回 404
 
 ### Requirement: Manually close a holding
-The system SHALL allow users to manually close a holding without triggering a stop-loss alert.
+系统 SHALL 允许用户以有效平仓价确认关闭 `holding` 或 `triggered` 持仓，且不额外创建止损告警。
 
-#### Scenario: Close a holding at current market price
-- **WHEN** user requests POST /api/holdings/{id}/close with close_price
-- **THEN** the holding status changes to "stopped_out" with the close_price recorded
+#### Scenario: 手动关闭活动持仓
+- **WHEN** 用户为 `holding` 提交有效平仓价
+- **THEN** 状态变为 `closed`，保存平仓价，且不创建触发告警
+
+#### Scenario: 触发后确认关闭
+- **WHEN** 用户为 `triggered` 提交有效平仓价
+- **THEN** 状态变为 `closed`，已有触发告警保持不变
+
+#### Scenario: 重复关闭
+- **WHEN** 用户尝试关闭 `closed` 持仓
+- **THEN** 系统返回 400，持仓不变化

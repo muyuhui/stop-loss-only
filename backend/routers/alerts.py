@@ -1,53 +1,50 @@
-# -*- coding: utf-8 -*-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+
 from database import get_db
-from models import Alert, Holding
+from models import Alert
+
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
+def _payload(alert: Alert) -> dict:
+    return {
+        "id": alert.id, "holding_id": alert.holding_id, "holding_name": alert.holding_name,
+        "holding_code": alert.holding_code, "trigger_price": float(alert.trigger_price),
+        "current_price": float(alert.current_price), "quote_source": alert.quote_source,
+        "quoted_at": alert.quoted_at.isoformat() if alert.quoted_at else None,
+        "read": alert.read, "created_at": alert.created_at.isoformat() if alert.created_at else None,
+    }
+
+
 @router.get("")
-def list_alerts(unread: bool = None, page: int = 1, size: int = 50, db: Session = Depends(get_db)):
+def list_alerts(unread: bool | None = None, page: int = Query(1, ge=1), size: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
     query = db.query(Alert)
-    if unread:
-        query = query.filter(Alert.read == False)
+    if unread is True:
+        query = query.filter(Alert.read.is_(False))
     total = query.count()
-    alerts = query.order_by(Alert.created_at.desc()).offset((page - 1) * size).limit(size).all()
-    items = []
-    for a in alerts:
-        h = db.query(Holding).filter(Holding.id == a.holding_id).first()
-        items.append({
-            "id": a.id,
-            "holding_id": a.holding_id,
-            "holding_name": h.name if h else "",
-            "holding_code": h.code if h else "",
-            "trigger_price": a.trigger_price,
-            "current_price": a.current_price,
-            "read": a.read,
-            "created_at": a.created_at.isoformat() if a.created_at else "",
-        })
-    return {"items": items, "total": total}
+    alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).offset((page - 1) * size).limit(size).all()
+    return {"items": [_payload(item) for item in alerts], "total": total, "page": page, "size": size}
 
 
 @router.get("/count")
 def alert_count(db: Session = Depends(get_db)):
-    count = db.query(Alert).filter(Alert.read == False).count()
-    return {"count": count}
-
-
-@router.put("/{alert_id}/read")
-def mark_read(alert_id: int, db: Session = Depends(get_db)):
-    a = db.query(Alert).filter(Alert.id == alert_id).first()
-    if not a:
-        raise HTTPException(status_code=404, detail="告警不存在")
-    a.read = True
-    db.commit()
-    return {"ok": True}
+    return {"count": db.query(Alert).filter(Alert.read.is_(False)).count()}
 
 
 @router.put("/read-all")
 def mark_all_read(db: Session = Depends(get_db)):
-    db.query(Alert).filter(Alert.read == False).update({"read": True})
+    db.query(Alert).filter(Alert.read.is_(False)).update({"read": True})
+    db.commit()
+    return {"ok": True}
+
+
+@router.put("/{alert_id}/read")
+def mark_read(alert_id: int, db: Session = Depends(get_db)):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail="告警不存在")
+    alert.read = True
     db.commit()
     return {"ok": True}

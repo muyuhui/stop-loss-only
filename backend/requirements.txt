@@ -3,4 +3,5 @@ uvicorn==0.30.0
 sqlalchemy==2.0.35
 pydantic==2.9.0
 apscheduler==3.10.4
-akshare>=1.14.0
+akshare==1.18.70
+tzdata==2025.2

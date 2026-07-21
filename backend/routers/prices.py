@@ -1,57 +1,30 @@
-# -*- coding: utf-8 -*-
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime
+
 from database import get_db
-from models import Holding, Alert
-from services.price_fetcher import fetch_all_prices, is_trading_day, fetch_price
-from services.stop_loss import StopLossEngine
+from models import Holding
+from services.monitoring import run_monitoring_cycle
+from schemas import RefreshCycleResponse
+
 
 router = APIRouter(prefix="/prices", tags=["prices"])
 
 
 @router.get("")
 def get_prices(db: Session = Depends(get_db)):
-    holdings = db.query(Holding).filter(Holding.status == "holding").all()
-    results = []
-    for h in holdings:
-        results.append({
-            "code": h.code,
-            "name": h.name,
-            "current_price": h.current_price,
-            "change_pct": 0,
-            "fetched_at": datetime.now().isoformat(),
-        })
-    return {"items": results}
+    holdings = db.query(Holding).filter(Holding.status.in_(("holding", "triggered"))).all()
+    return {"items": [{
+        "code": h.code, "name": h.name, "current_price": float(h.current_price),
+        "source": h.quote_source, "quoted_at": h.quoted_at, "fetched_at": h.fetched_at,
+    } for h in holdings]}
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=RefreshCycleResponse)
 def refresh_prices(db: Session = Depends(get_db)):
-    if not is_trading_day():
-        return {"ok": True, "message": "非交易日，跳过刷新"}
-    holdings = db.query(Holding).filter(Holding.status == "holding").all()
-    if not holdings:
-        return {"ok": True, "message": "无活跃持仓"}
-    price_results = fetch_all_prices(holdings)
-    triggered = []
-    for pr in price_results:
-        h = next((x for x in holdings if x.code == pr["code"]), None)
-        if h is None:
-            continue
-        if pr.get("error") is None and pr["current_price"] > 0:
-            h.current_price = pr["current_price"]
-            if pr["current_price"] > h.highest_price:
-                h.highest_price = pr["current_price"]
-        stop_loss_price = StopLossEngine.calculate(h.buy_price, h.highest_price, h.stop_loss_method, h.stop_loss_value)
-        h.stop_loss_price = stop_loss_price
-        if StopLossEngine.is_triggered(h.current_price or pr.get("current_price", 0), stop_loss_price):
-            h.status = "stopped_out"
-            alert = Alert(
-                holding_id=h.id,
-                trigger_price=stop_loss_price,
-                current_price=h.current_price or pr.get("current_price", 0),
-            )
-            db.add(alert)
-            triggered.append({"code": h.code, "name": h.name, "current_price": h.current_price, "stop_loss_price": stop_loss_price})
-    db.commit()
-    return {"ok": True, "triggered": triggered, "total": len(holdings), "trading_day": True}
+    try:
+        return run_monitoring_cycle(db, scheduled=False)
+    except Exception as exc:
+        correlation_id = uuid.uuid4().hex
+        raise HTTPException(status_code=500, detail={"message": "价格刷新失败", "correlation_id": correlation_id}) from exc

@@ -1,14 +1,19 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import { useSettingsStore } from '../stores/settings'
+import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
+import { createPoller } from '../utils/poller'
 
 const dashboard = ref({
-  total_cost: 0, total_market_value: 0, total_profit_loss: 0,
-  total_profit_loss_pct: 0, holding_count: 0, active_alerts_count: 0,
+  active_cost: 0, active_market_value: 0, unrealized_profit_loss: 0,
+  unrealized_profit_loss_pct: 0, realized_profit_loss: 0,
+  holding_count: 0, triggered_count: 0, closed_count: 0, active_alerts_count: 0,
   holdings: [],
 })
-let timer = null
+const settingsStore = useSettingsStore()
+const poller = createPoller(load)
 
 async function load() {
   try {
@@ -17,12 +22,19 @@ async function load() {
   } catch { /* skip */ }
 }
 
-onMounted(() => {
+function startPolling() {
+  poller.start(settingsStore.pollInterval)
+}
+
+onMounted(async () => {
+  await settingsStore.fetchSettings()
   load()
-  timer = setInterval(load, 30000)
+  startPolling()
 })
 
-onUnmounted(() => clearInterval(timer))
+watch(() => settingsStore.pollInterval, startPolling)
+
+onUnmounted(() => poller.stop())
 
 const router = useRouter()
 
@@ -38,7 +50,7 @@ function formatPrice(v) {
         <el-card shadow="hover">
           <div style="color: #909399; font-size: 13px">总市值</div>
           <div style="font-size: 24px; font-weight: 700; margin-top: 4px">
-            ¥{{ formatPrice(dashboard.total_market_value) }}
+            ¥{{ formatPrice(dashboard.active_market_value) }}
           </div>
         </el-card>
       </el-col>
@@ -46,7 +58,7 @@ function formatPrice(v) {
         <el-card shadow="hover">
           <div style="color: #909399; font-size: 13px">总成本</div>
           <div style="font-size: 24px; font-weight: 700; margin-top: 4px">
-            ¥{{ formatPrice(dashboard.total_cost) }}
+            ¥{{ formatPrice(dashboard.active_cost) }}
           </div>
         </el-card>
       </el-col>
@@ -55,10 +67,10 @@ function formatPrice(v) {
           <div style="color: #909399; font-size: 13px">总盈亏</div>
           <div
             style="font-size: 24px; font-weight: 700; margin-top: 4px"
-            :style="{ color: dashboard.total_profit_loss >= 0 ? '#e53e3e' : '#38a169' }"
+            :style="{ color: dashboard.unrealized_profit_loss >= 0 ? '#e53e3e' : '#38a169' }"
           >
-            ¥{{ formatPrice(dashboard.total_profit_loss) }}
-            <span style="font-size: 14px">({{ formatPrice(dashboard.total_profit_loss_pct) }}%)</span>
+            ¥{{ formatPrice(dashboard.unrealized_profit_loss) }}
+            <span style="font-size: 14px">({{ formatPrice(dashboard.unrealized_profit_loss_pct) }}%)</span>
           </div>
         </el-card>
       </el-col>
@@ -110,8 +122,8 @@ function formatPrice(v) {
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'holding' ? 'success' : 'info'" size="small">
-              {{ row.status === 'holding' ? '持有中' : '已止损' }}
+            <el-tag :type="holdingStatusTag(row.status)" size="small">
+              {{ holdingStatusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -123,6 +135,17 @@ function formatPrice(v) {
           </template>
         </el-table-column>
       </el-table>
+    </el-card>
+
+    <el-card style="margin-top: 16px">
+      <template #header><span style="font-weight: 600">今日告警</span></template>
+      <div v-if="dashboard.latest_alert">
+        今日共 {{ dashboard.today_alert_count }} 条，最新：
+        {{ dashboard.latest_alert.holding_name }}（{{ dashboard.latest_alert.holding_code }}）
+        当前价 ¥{{ formatPrice(dashboard.latest_alert.current_price) }}，
+        止损价 ¥{{ formatPrice(dashboard.latest_alert.trigger_price) }}
+      </div>
+      <el-empty v-else description="今日暂无告警" :image-size="60" />
     </el-card>
   </div>
 </template>

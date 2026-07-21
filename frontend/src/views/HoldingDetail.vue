@@ -3,6 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
+import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -99,8 +100,8 @@ onMounted(load)
         <el-card shadow="hover">
           <div style="color: #909399; font-size: 13px">状态</div>
           <div style="font-size: 18px; font-weight: 600; margin-top: 4px">
-            <el-tag :type="holding.status === 'holding' ? 'success' : 'info'">
-              {{ holding.status === 'holding' ? '持有中' : '已止损' }}
+            <el-tag :type="holdingStatusTag(holding.status)">
+              {{ holdingStatusLabel(holding.status) }}
             </el-tag>
           </div>
         </el-card>
@@ -179,7 +180,7 @@ onMounted(load)
       </el-form>
     </el-card>
 
-    <el-card v-if="holding.status === 'holding'">
+    <el-card v-if="holding.status !== 'closed'">
       <template #header>
         <span style="font-weight: 600">操作</span>
       </template>

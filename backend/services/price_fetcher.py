@@ -1,101 +1,125 @@
-# -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import logging
-from datetime import datetime, date
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+
+from config import config
+from services.market_clock import MARKET_TZ, is_in_trading_session, local_now, normalize_trade_date
+from services.stop_loss import to_decimal
+
 
 logger = logging.getLogger(__name__)
 
 
-def is_trading_day(check_date: date = None) -> bool:
+def trading_day_status(check_date: date | None = None) -> tuple[bool, bool]:
+    check_date = check_date or local_now().date()
     try:
         import akshare as ak
-        if check_date is None:
-            check_date = date.today()
-        day_str = check_date.strftime("%Y%m%d")
         calendar = ak.tool_trade_date_hist_sina()
-        trading_days = set(calendar["trade_date"].tolist())
-        return day_str in trading_days
-    except Exception:
-        logger.warning("交易日历获取失败，按周一到周五假定")
-        if check_date is None:
-            check_date = date.today()
-        wd = check_date.weekday()
-        return wd < 5
+        days = {normalize_trade_date(value) for value in calendar["trade_date"].tolist()}
+        return check_date in days, False
+    except Exception as exc:
+        logger.warning("交易日历获取失败，使用工作日退化规则: %s", exc)
+        return check_date.weekday() < 5, True
 
 
-def fetch_stock_price(code: str) -> dict:
+def is_trading_day(check_date: date | None = None) -> bool:
+    return trading_day_status(check_date)[0]
+
+
+def is_market_open(now: datetime | None = None) -> tuple[bool, bool]:
+    current = local_now(now)
+    trading_day, degraded = trading_day_status(current.date())
+    return trading_day and is_in_trading_session(current), degraded
+
+
+def _error(code: str, asset_type: str, message: str, fetched_at: datetime, source: str = "akshare") -> dict:
+    return {
+        "code": code, "asset_type": asset_type, "current_price": None, "change_pct": None,
+        "source": source, "quoted_at": None, "fetched_at": fetched_at,
+        "fresh": False, "error": message,
+    }
+
+
+def _quote(code: str, asset_type: str, price, change_pct, source: str, quoted_at: datetime, fetched_at: datetime) -> dict:
+    max_age = timedelta(days=3) if source == "akshare-open-fund-nav" else timedelta(seconds=config.quote_max_age_seconds)
+    age = fetched_at.astimezone(MARKET_TZ) - quoted_at.astimezone(MARKET_TZ)
+    return {
+        "code": code, "asset_type": asset_type, "current_price": to_decimal(price),
+        "change_pct": float(change_pct or 0), "source": source, "quoted_at": quoted_at,
+        "fetched_at": fetched_at, "fresh": timedelta(0) <= age <= max_age, "error": None,
+    }
+
+
+def _rows_by_code(frame) -> dict[str, object]:
+    if frame is None or frame.empty:
+        return {}
+    return {str(row["代码"]).zfill(6): row for _, row in frame.iterrows()}
+
+
+def fetch_all_prices(holdings: list, now: datetime | None = None) -> list[dict]:
+    fetched_at = local_now(now)
+    unique = {(h.type, str(h.code).zfill(6)) for h in holdings}
+    if not unique:
+        return []
+    if config.fixture_price is not None:
+        return [_quote(code, asset_type, config.fixture_price, 0, "fixture", fetched_at, fetched_at) for asset_type, code in sorted(unique)]
     try:
         import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        row = df[df["代码"] == code]
-        if row.empty:
-            return {"code": code, "current_price": 0, "change_pct": 0, "error": f"未找到股票 {code}"}
-        r = row.iloc[0]
-        return {
-            "code": code,
-            "current_price": float(r["最新价"]),
-            "change_pct": float(r["涨跌幅"]),
-            "error": None,
-        }
-    except Exception as e:
-        logger.error(f"获取股票 {code} 价格失败: {e}")
-        return {"code": code, "current_price": 0, "change_pct": 0, "error": str(e)}
+    except Exception as exc:
+        return [_error(code, asset_type, str(exc), fetched_at) for asset_type, code in sorted(unique)]
 
-
-def fetch_fund_price(code: str) -> dict:
-    try:
-        import akshare as ak
-        df = ak.fund_etf_spot_em()
-        row = df[df["代码"] == code]
-        if not row.empty:
-            r = row.iloc[0]
-            return {
-                "code": code,
-                "current_price": float(r["最新价"]),
-                "change_pct": float(r["涨跌幅"]),
-                "error": None,
-            }
-        df_lof = ak.fund_lof_spot_em()
-        row_lof = df_lof[df_lof["代码"] == code]
-        if not row_lof.empty:
-            r = row_lof.iloc[0]
-            return {
-                "code": code,
-                "current_price": float(r["最新价"]),
-                "change_pct": float(r.get("涨跌幅", 0)),
-                "error": None,
-            }
+    stock_rows, etf_rows, lof_rows = {}, {}, {}
+    dataset_errors: dict[str, str] = {}
+    if any(asset_type == "stock" for asset_type, _ in unique):
         try:
-            nav_df = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
-            if not nav_df.empty:
-                latest = nav_df.iloc[-1]
-                return {
-                    "code": code,
-                    "current_price": float(latest["单位净值"]),
-                    "change_pct": 0,
-                    "error": None,
-                }
-        except Exception:
-            pass
-        return {"code": code, "current_price": 0, "change_pct": 0, "error": f"未找到基金 {code}"}
-    except Exception as e:
-        logger.error(f"获取基金 {code} 价格失败: {e}")
-        return {"code": code, "current_price": 0, "change_pct": 0, "error": str(e)}
+            stock_rows = _rows_by_code(ak.stock_zh_a_spot_em())
+        except Exception as exc:
+            dataset_errors["stock"] = str(exc)
+    if any(asset_type == "fund" for asset_type, _ in unique):
+        try:
+            etf_rows = _rows_by_code(ak.fund_etf_spot_em())
+        except Exception as exc:
+            dataset_errors["etf"] = str(exc)
+        try:
+            lof_rows = _rows_by_code(ak.fund_lof_spot_em())
+        except Exception as exc:
+            dataset_errors["lof"] = str(exc)
+
+    results = []
+    for asset_type, code in sorted(unique):
+        if asset_type == "stock":
+            row = stock_rows.get(code)
+            if row is not None:
+                results.append(_quote(code, asset_type, row["最新价"], row.get("涨跌幅", 0), "akshare-stock-spot", fetched_at, fetched_at))
+            else:
+                results.append(_error(code, asset_type, dataset_errors.get("stock", f"未找到股票 {code}"), fetched_at))
+            continue
+        row = etf_rows.get(code)
+        if row is None:
+            row = lof_rows.get(code)
+        if row is not None:
+            source = "akshare-etf-spot" if code in etf_rows else "akshare-lof-spot"
+            results.append(_quote(code, asset_type, row["最新价"], row.get("涨跌幅", 0), source, fetched_at, fetched_at))
+            continue
+        try:
+            nav = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
+            if nav.empty:
+                raise ValueError(f"未找到基金 {code}")
+            latest = nav.iloc[-1]
+            quote_day = normalize_trade_date(latest.iloc[0])
+            quoted_at = datetime.combine(quote_day, datetime.min.time(), tzinfo=MARKET_TZ)
+            results.append(_quote(code, asset_type, latest["单位净值"], 0, "akshare-open-fund-nav", quoted_at, fetched_at))
+        except Exception as exc:
+            message = str(exc) or dataset_errors.get("etf") or dataset_errors.get("lof") or f"未找到基金 {code}"
+            results.append(_error(code, asset_type, message, fetched_at))
+    return results
 
 
 def fetch_price(code: str, asset_type: str) -> dict:
-    if asset_type == "stock":
-        return fetch_stock_price(code)
-    elif asset_type == "fund":
-        return fetch_fund_price(code)
-    else:
-        return {"code": code, "current_price": 0, "change_pct": 0, "error": f"未知类型 {asset_type}"}
-
-
-def fetch_all_prices(holdings: list) -> list[dict]:
-    results = []
-    for h in holdings:
-        result = fetch_price(h.code, h.type)
-        result["name"] = h.name
-        result["fetched_at"] = datetime.now().isoformat()
-        results.append(result)
-    return results
+    class Instrument:
+        pass
+    item = Instrument()
+    item.code, item.type = code, asset_type
+    return fetch_all_prices([item])[0]

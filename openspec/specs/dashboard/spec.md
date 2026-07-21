@@ -7,29 +7,37 @@ Provide a portfolio overview dashboard with summary metrics, holdings status, an
 ## Requirements
 
 ### Requirement: Portfolio summary
-The system SHALL calculate and display a portfolio summary including total market value, total cost, total profit/loss, and profit/loss percentage.
+系统 SHALL 将 `holding`、`triggered` 的当前敞口和未实现收益，与 `closed` 的毛已实现收益分开计算，并返回各生命周期数量。
 
-#### Scenario: Dashboard with multiple holdings
-- **WHEN** user requests GET /api/dashboard
-- **THEN** system returns {total_cost, total_market_value, total_profit_loss, total_profit_loss_pct, holding_count, active_alerts_count}
+#### Scenario: 同时存在活动和已关闭持仓
+- **WHEN** 组合中包含当前持仓和已关闭持仓
+- **THEN** 系统分别计算活动成本、活动市值、未实现收益、毛已实现收益及状态数量
 
-#### Scenario: Dashboard with no holdings
-- **WHEN** user requests GET /api/dashboard with an empty portfolio
-- **THEN** system returns all values as zero and holding_count=0
+#### Scenario: 没有持仓
+- **WHEN** 组合为空
+- **THEN** 所有金额和状态数量均为零
 
 ### Requirement: Holdings overview list
-The system SHALL include a list of all holdings with key metrics in the dashboard response: code, name, type, current price, stop-loss price, profit/loss percentage, and stop-loss distance percentage.
+系统 SHALL 在仪表盘中列出 `holding` 和 `triggered`，并返回与持仓 API 一致的标识、价格、行情元数据、止损字段、状态、收益率和止损距离。
 
-#### Scenario: Dashboard with holdings
-- **WHEN** user requests GET /api/dashboard
-- **THEN** each holding includes {id, code, name, type, buy_price, current_price, quantity, stop_loss_price, stop_loss_method, profit_loss_pct, stop_loss_distance_pct, status}
+#### Scenario: 仪表盘包含当前持仓
+- **WHEN** 用户请求 `GET /api/dashboard`
+- **THEN** 每项派生字段与持仓 API 中同一快照一致
+
+#### Scenario: 存在已关闭持仓
+- **WHEN** 组合包含 `closed` 持仓
+- **THEN** 它们计入已实现汇总，但不计入当前敞口列表
 
 ### Requirement: Today's alert summary
-The system SHALL include today's alert count and the most recent alert details in the dashboard.
+系统 SHALL 按 Asia/Shanghai 自然日边界返回今日告警数和最新告警快照。
 
-#### Scenario: Alerts exist for today
-- **WHEN** user requests GET /api/dashboard on a day with triggered alerts
-- **THEN** system returns today_alert_count and the latest alert details
+#### Scenario: 今日存在告警
+- **WHEN** 当前上海自然日内创建过告警
+- **THEN** 仪表盘返回告警数量和最新一条快照
+
+#### Scenario: 今日没有告警
+- **WHEN** 当前上海自然日内没有告警
+- **THEN** 今日告警数为零，最新告警为 null
 
 ### Requirement: Frontend dashboard layout
 The frontend SHALL display the dashboard as a grid with: portfolio summary cards at top, holdings table in middle, and alert summary at bottom.
@@ -39,12 +47,16 @@ The frontend SHALL display the dashboard as a grid with: portfolio summary cards
 - **THEN** the page displays summary cards, a holdings table with real-time prices, and today's alert summary
 
 ### Requirement: Real-time frontend refresh
-The frontend SHALL poll the dashboard API at a configurable interval (default 30 seconds) to refresh price and status data.
+前端 SHALL 使用生效的运行时轮询间隔刷新仪表盘，并保证最多只有一个仪表盘计时器。
 
-#### Scenario: Automatic dashboard refresh
-- **WHEN** the polling interval elapses
-- **THEN** the dashboard data refreshes without requiring a manual page reload
+#### Scenario: 自动刷新
+- **WHEN** 仪表盘已挂载且配置间隔到期
+- **THEN** 数据自动刷新，无需重载页面
 
-#### Scenario: Stop polling when leaving dashboard
-- **WHEN** user navigates away from the dashboard page
-- **THEN** polling stops to conserve resources
+#### Scenario: 间隔动态变化
+- **WHEN** 仪表盘挂载期间轮询设置发生变化
+- **THEN** 清除旧计时器并按新间隔只启动一个计时器
+
+#### Scenario: 离开仪表盘
+- **WHEN** 用户导航离开仪表盘
+- **THEN** 清除活动计时器

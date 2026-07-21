@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 import { useSettingsStore } from '../stores/settings'
+import { summarizeRefresh } from '../utils/refreshResult'
 
 const settingsStore = useSettingsStore()
 const pollInterval = ref(30)
@@ -27,13 +28,8 @@ async function refreshPrices() {
   refreshing.value = true
   try {
     const res = await api.post('/prices/refresh')
-    const triggered = res.data.triggered || []
-    if (triggered.length > 0) {
-      const names = triggered.map(t => t.name).join('、')
-      ElMessage.warning(`止损触发: ${names}`)
-    } else {
-      ElMessage.success('价格刷新完成')
-    }
+    const summary = summarizeRefresh(res.data)
+    ElMessage[summary.type](summary.message)
   } finally {
     refreshing.value = false
   }

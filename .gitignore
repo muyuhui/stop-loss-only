@@ -1,6 +1,8 @@
 # PID
 .backend.pid
 .frontend.pid
+.backend.process.json
+.frontend.process.json
 
 # Logs
 logs/
@@ -20,6 +22,7 @@ frontend/dist/
 
 # DB
 *.db
+backend/backups/
 
 # IDE
 .vscode/

@@ -3,14 +3,19 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import HoldingForm from '../components/HoldingForm.vue'
+import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 
 const holdings = ref([])
+const total = ref(0)
+const page = ref(1)
+const size = ref(20)
 const dialogVisible = ref(false)
 const router = useRouter()
 
 async function load() {
-  const res = await api.get('/holdings')
+  const res = await api.get('/holdings', { params: { page: page.value, size: size.value } })
   holdings.value = res.data.items || []
+  total.value = res.data.total || 0
 }
 
 function format(v) {
@@ -69,8 +74,8 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
-          <el-tag :type="row.status === 'holding' ? 'success' : 'info'" size="small">
-            {{ row.status === 'holding' ? '持有中' : '已止损' }}
+          <el-tag :type="holdingStatusTag(row.status)" size="small">
+            {{ holdingStatusLabel(row.status) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -82,6 +87,16 @@ onMounted(load)
         </template>
       </el-table-column>
     </el-table>
+
+    <el-pagination
+      v-if="total > size"
+      v-model:current-page="page"
+      v-model:page-size="size"
+      :total="total"
+      layout="prev, pager, next, total"
+      style="margin-top: 16px; justify-content: flex-end"
+      @current-change="load"
+    />
 
     <el-dialog v-model="dialogVisible" title="新增持仓" width="560px" destroy-on-close>
       <HoldingForm @success="onCreated" @cancel="dialogVisible = false" />

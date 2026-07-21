@@ -1,45 +1,56 @@
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
+from config import config
 from database import get_db
-from models import Holding, Alert
-from services.stop_loss import StopLossEngine
+from models import Alert, Holding
+from services.presentation import holding_payload
+from services.stop_loss import to_decimal
+from schemas import DashboardResponse
+
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-@router.get("")
+@router.get("", response_model=DashboardResponse)
 def get_dashboard(db: Session = Depends(get_db)):
     holdings = db.query(Holding).all()
-    total_cost = 0.0
-    total_market_value = 0.0
+    current = [h for h in holdings if h.status in ("holding", "triggered")]
+    closed = [h for h in holdings if h.status == "closed"]
+    active_cost = sum((to_decimal(h.buy_price) * h.quantity for h in current), start=to_decimal(0))
+    active_value = sum((to_decimal(h.current_price) * h.quantity for h in current), start=to_decimal(0))
+    unrealized = active_value - active_cost
+    realized = sum(((to_decimal(h.close_price) - to_decimal(h.buy_price)) * h.quantity for h in closed if h.close_price is not None), start=to_decimal(0))
+    unrealized_pct = round(float(unrealized / active_cost * 100), 2) if active_cost else 0.0
 
-    holding_items = []
-    for h in holdings:
-        sp = StopLossEngine.calculate(h.buy_price, h.highest_price, h.stop_loss_method, h.stop_loss_value)
-        pnl = round((h.current_price - h.buy_price) / h.buy_price * 100, 2) if h.buy_price else 0
-        dist = round((h.current_price - sp) / h.current_price * 100, 2) if h.current_price > 0 else 0
-        cost = h.buy_price * h.quantity
-        mv = h.current_price * h.quantity if h.status == "holding" else (h.close_price or h.current_price) * h.quantity
-        total_cost += cost
-        total_market_value += mv
-        holding_items.append({
-            "id": h.id, "code": h.code, "name": h.name, "type": h.type,
-            "buy_price": h.buy_price, "quantity": h.quantity, "buy_date": h.buy_date.isoformat() if h.buy_date else "",
-            "current_price": h.current_price, "stop_loss_method": h.stop_loss_method,
-            "stop_loss_value": h.stop_loss_value, "stop_loss_price": sp,
-            "profit_loss_pct": pnl, "stop_loss_distance_pct": dist, "status": h.status,
-        })
-
-    total_pl = round(total_market_value - total_cost, 2)
-    total_pl_pct = round(total_pl / total_cost * 100, 2) if total_cost > 0 else 0
-    active_alerts = db.query(Alert).filter(Alert.read == False).count()
-
+    tz = ZoneInfo(config.timezone)
+    today = datetime.now(tz).date()
+    # SQLite CURRENT_TIMESTAMP is stored as naive UTC; convert Shanghai day bounds
+    # to the same representation before comparing.
+    start = datetime.combine(today, time.min, tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
+    end = datetime.combine(today, time.max, tzinfo=tz).astimezone(timezone.utc).replace(tzinfo=None)
+    today_query = db.query(Alert).filter(Alert.created_at >= start, Alert.created_at <= end)
+    latest = today_query.order_by(Alert.created_at.desc(), Alert.id.desc()).first()
+    latest_payload = None
+    if latest:
+        latest_payload = {
+            "id": latest.id, "holding_name": latest.holding_name, "holding_code": latest.holding_code,
+            "trigger_price": float(latest.trigger_price), "current_price": float(latest.current_price),
+            "created_at": latest.created_at,
+        }
+    counts = {name: sum(1 for h in holdings if h.status == name) for name in ("holding", "triggered", "closed")}
     return {
-        "total_cost": round(total_cost, 2),
-        "total_market_value": round(total_market_value, 2),
-        "total_profit_loss": total_pl,
-        "total_profit_loss_pct": total_pl_pct,
-        "holding_count": len(holdings),
-        "active_alerts_count": active_alerts,
-        "holdings": holding_items,
+        "active_cost": float(active_cost), "active_market_value": float(active_value),
+        "unrealized_profit_loss": float(unrealized), "unrealized_profit_loss_pct": unrealized_pct,
+        "realized_profit_loss": float(realized), "holding_count": counts["holding"],
+        "triggered_count": counts["triggered"], "closed_count": counts["closed"],
+        "active_alerts_count": db.query(Alert).filter(Alert.read.is_(False)).count(),
+        "today_alert_count": today_query.count(), "latest_alert": latest_payload,
+        "holdings": [holding_payload(item) for item in current],
+        # 兼容旧前端，后续完成迁移后可移除。
+        "total_cost": float(active_cost), "total_market_value": float(active_value),
+        "total_profit_loss": float(unrealized), "total_profit_loss_pct": unrealized_pct,
     }

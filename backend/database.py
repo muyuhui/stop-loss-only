@@ -1,16 +1,27 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from __future__ import annotations
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./stop_loss.db"
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+from config import config
 
 
 class Base(DeclarativeBase):
     pass
+
+
+def build_engine(database_url: str):
+    kwargs = {"connect_args": {"check_same_thread": False}} if database_url.startswith("sqlite") else {}
+    engine = create_engine(database_url, **kwargs)
+    if database_url.startswith("sqlite"):
+        @event.listens_for(engine, "connect")
+        def _enable_sqlite_foreign_keys(dbapi_connection, _):
+            dbapi_connection.execute("PRAGMA foreign_keys=ON")
+    return engine
+
+
+engine = build_engine(config.database_url)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db():

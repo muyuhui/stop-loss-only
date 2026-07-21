@@ -17,7 +17,7 @@ def get_dashboard(db: Session = Depends(get_db)):
     for h in holdings:
         sp = StopLossEngine.calculate(h.buy_price, h.highest_price, h.stop_loss_method, h.stop_loss_value)
         pnl = round((h.current_price - h.buy_price) / h.buy_price * 100, 2) if h.buy_price else 0
-        dist = round((h.current_price - sp) / sp * 100, 2) if sp and sp > 0 else 0
+        dist = round((h.current_price - sp) / h.current_price * 100, 2) if h.current_price > 0 else 0
         cost = h.buy_price * h.quantity
         mv = h.current_price * h.quantity if h.status == "holding" else (h.close_price or h.current_price) * h.quantity
         total_cost += cost

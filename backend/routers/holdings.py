@@ -13,7 +13,7 @@ def _compute_fields(h: Holding):
     stop_loss_price = StopLossEngine.calculate(h.buy_price, h.highest_price, h.stop_loss_method, h.stop_loss_value)
     profit_loss_pct = round((h.current_price - h.buy_price) / h.buy_price * 100, 2) if h.buy_price else 0
     if stop_loss_price and stop_loss_price > 0:
-        distance_pct = round((h.current_price - stop_loss_price) / stop_loss_price * 100, 2)
+        distance_pct = round((h.current_price - stop_loss_price) / h.current_price * 100, 2) if h.current_price > 0 else 0
     else:
         distance_pct = 0
     h.stop_loss_price = stop_loss_price

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    start_scheduler(interval_minutes=5)
+    start_scheduler(interval_minutes=1)
     yield
 
 

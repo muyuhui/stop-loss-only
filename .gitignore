@@ -2,6 +2,9 @@
 .backend.pid
 .frontend.pid
 
+# Logs
+logs/
+
 # Python
 __pycache__/
 *.pyc

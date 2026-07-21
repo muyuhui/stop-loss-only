@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from datetime import date
 from database import SessionLocal
 from models import Holding, Alert
 from services.price_fetcher import fetch_all_prices, is_trading_day
@@ -8,12 +10,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
+_first_fetch_date = None
 
 
 def monitoring_job():
-    if not is_trading_day():
-        logger.info("非交易日，跳过监控")
-        return
+    global _first_fetch_date
+    today = date.today()
+    is_td = is_trading_day(today)
+    if not is_td:
+        if _first_fetch_date == today:
+            logger.info("非交易日且今日已获取过数据，跳过监控")
+            return
+        logger.info("非交易日首次启动，获取一次数据")
+        _first_fetch_date = today
     db = SessionLocal()
     try:
         holdings = db.query(Holding).filter(Holding.status == "holding").all()

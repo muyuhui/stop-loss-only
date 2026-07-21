@@ -1,41 +1,55 @@
 param(
+    [ValidateRange(1, 65535)]
     [int]$BackendPort = 8001,
+    [ValidateRange(1, 65535)]
     [int]$FrontendPort = 5173
 )
 
 $root = $PSScriptRoot
+$logDir = Join-Path $root "logs"
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  止损不止盈 - 关闭中..." -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+function Stop-RecordedProcess([string]$PidFile) {
+    $path = Join-Path $root $PidFile
+    if (-not (Test-Path $path)) { return }
 
-function Kill-Port($port) {
-    $lines = netstat -ano | Select-String ":$port " | Select-String "LISTENING" 2>$null
-    if (-not $lines) { return }
-    foreach ($line in $lines) {
-        $parts = $line.ToString().Trim() -split '\s+'
-        $procId = $parts[-1]
-        if ($procId -and $procId -match '^\d+$') {
-            Write-Host "  终止端口 $port (PID: $procId)" -ForegroundColor Yellow
-            taskkill /F /T /PID $procId 2>&1 | Out-Null
-        }
+    $processId = (Get-Content $path -Raw).Trim()
+    if ($processId -match '^\d+$' -and (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
+        Write-Host "  Stopping recorded process (PID: $processId)" -ForegroundColor Yellow
+        taskkill /F /T /PID $processId 2>$null | Out-Null
     }
 }
 
-Kill-Port $BackendPort
-Kill-Port $FrontendPort
-
-# 清理 PID 文件
-Remove-Item "$root\.backend.pid", "$root\.frontend.pid" -Force -ErrorAction SilentlyContinue
-
-Start-Sleep 1
-
-# 验证
-$remaining = netstat -ano | Select-String ":(8001|5173) " | Select-String "LISTENING" 2>$null
-if ($remaining) {
-    Write-Host "`n  以下端口仍有残留:" -ForegroundColor Red
-    $remaining | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    Write-Host "  请手动运行: taskkill /F /PID <PID>" -ForegroundColor Yellow
-} else {
-    Write-Host "`n  已全部关闭" -ForegroundColor Green
+function Stop-PortListener([int]$Port) {
+    $listeners = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+    foreach ($listener in $listeners) {
+        Write-Host "  Stopping port $Port (PID: $($listener.OwningProcess))" -ForegroundColor Yellow
+        taskkill /F /T /PID $listener.OwningProcess 2>$null | Out-Null
+    }
 }
+
+function Test-PortListening([int]$Port) {
+    return $null -ne (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
+}
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Stop Loss Only - stopping..." -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+Stop-RecordedProcess ".backend.pid"
+Stop-RecordedProcess ".frontend.pid"
+Stop-PortListener $BackendPort
+Stop-PortListener $FrontendPort
+
+Remove-Item (Join-Path $root ".backend.pid"), (Join-Path $root ".frontend.pid") -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+Remove-Item (Join-Path $logDir "*.log") -Force -ErrorAction SilentlyContinue
+
+$remainingPorts = @($BackendPort, $FrontendPort) |
+    Select-Object -Unique |
+    Where-Object { Test-PortListening $_ }
+if ($remainingPorts.Count -gt 0) {
+    Write-Host "`n  Ports still listening: $($remainingPorts -join ', ')" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "`n  Services stopped and logs cleared." -ForegroundColor Green

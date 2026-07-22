@@ -22,8 +22,7 @@
 - [ ] 3.4 Implement stable Decimal-safe position, lot, rule, and accounting exports.
 - [ ] 3.5 Add import preview, per-row error, commit, and export flows to settings.
 - [ ] 3.6 Implement configurable batched history cleanup with resumable progress.
-- [ ] 3.7 Implement server-side chart downsampling that preserves key event points.
-- [ ] 3.8 Test invalid and oversized files, expired previews, atomic failure, formula text, and Decimal round trips.
+- [ ] 3.7 Test invalid and oversized files, expired previews, atomic failure, formula text, Decimal round trips, and resumable cleanup.
 
 ## 4. Backup, diagnostics, and final gates
 

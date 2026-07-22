@@ -12,7 +12,7 @@
 - [ ] 2.2 Implement instrument identity and default local account creation.
 - [ ] 2.3 Implement lot creation, remaining-quantity invariants, and fixed FIFO allocation.
 - [ ] 2.4 Implement partial and complete close commands with fees, taxes, proceeds, and realized PnL.
-- [ ] 2.5 Implement backend valuation, unrealized PnL, weights, stop-risk amount, estimated loss, and coverage.
+- [ ] 2.5 Implement the specified Decimal formulas for position-count coverage, remaining-cost valuation coverage, actionable-market-value weights, stop-risk amount, signed PnL at stop, and non-negative estimated loss; return null for zero denominators and expose the exit-cost basis.
 - [ ] 2.6 Implement versioned stop rules and reset moving-stop high-water marks per rule lifecycle.
 - [ ] 2.7 Implement versioned immutable position events with an injectable clock.
 - [ ] 2.8 Implement risk acknowledgement and rearm commands with reason, expected version, and new trigger sequence.
@@ -25,14 +25,15 @@
 - [ ] 3.3 Generate initial immutable events for active, triggered, and closed legacy facts.
 - [ ] 3.4 Build reconciliation for quantities, costs, states, stop prices, alerts, and dashboard totals.
 - [ ] 3.5 Test upgrade, interruption recovery, and declared downgrade on every representative database fixture.
-- [ ] 3.6 Implement post-commit shadow projection while keeping the legacy model as the sole authoritative writer.
-- [ ] 3.7 Block cutover readiness and expose a redacted reason whenever shadow reconciliation differs.
+- [ ] 3.6 Implement post-commit shadow projection while keeping the legacy model as the sole authoritative writer; mark shadow state dirty when projection fails.
+- [ ] 3.7 Implement an idempotent full shadow rebuild from the legacy authority, restrict it to `legacy`/`shadow-read`, and require it after interruption and immediately before cutover.
+- [ ] 3.8 Block cutover readiness and expose a redacted reason whenever shadow reconciliation differs or shadow state is dirty.
 
 ## 4. Controlled authority cutover and APIs
 
 - [ ] 4.1 Implement the stopped-write cutover command with backup, final projection, reconciliation, and atomic authority update.
 - [ ] 4.2 Implement explicit backup restore or verified reverse migration for post-cutover rollback.
-- [ ] 4.3 Implement Decimal-safe `/api/positions` list, detail, lot, close, acknowledge, rearm, and history endpoints.
+- [ ] 4.3 Implement Decimal-safe `/api/positions` list, detail, lot, close, acknowledge, rearm, and history endpoints, including server-side downsampling to at most 1000 ordinary points while preserving key event markers.
 - [ ] 4.4 Extend alert and dashboard queries to use new event and accounting facts.
 - [ ] 4.5 Map the new authoritative model to frozen holdings, alert, refresh, and dashboard compatibility DTOs.
 - [ ] 4.6 Add API contract tests for unpriced, triggered, acknowledged, partially closed, and closed combinations.

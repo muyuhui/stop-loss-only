@@ -25,6 +25,10 @@
 - **WHEN** 提供方超过硬超时
 - **THEN** 系统返回稳定错误码、记录脱敏诊断，并继续处理不依赖该结果的标的
 
+#### Scenario: Calendar uses weekday fallback
+- **WHEN** 权威交易日历不可用、没有有效缓存且系统使用工作日启发式降级
+- **THEN** 系统可以取价并记录 `weekday_fallback` 诊断，但默认设置 `is_actionable=false`；只有提供方行情自身包含可验证的当前交易日和当前交易时段时间时才允许触发
+
 ## MODIFIED Requirements
 
 ### Requirement: Scheduled price monitoring

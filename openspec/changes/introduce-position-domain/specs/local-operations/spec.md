@@ -11,6 +11,10 @@
 - **WHEN** 任一关键对账项不一致
 - **THEN** 系统阻止进入 `new-authoritative` 并暴露不含敏感值的 readiness 原因
 
+#### Scenario: Post-commit projection is interrupted
+- **WHEN** 旧模型事务已经提交但进程在 shadow 投影完成前退出
+- **THEN** 旧模型继续作为唯一权威事实，shadow 被视为 dirty，幂等全量重建与对账成功前不得切换权威模式
+
 ### Requirement: Switch authority only at a controlled cutover
 系统 SHALL 在停止调度和业务写入、创建校验备份、完成最终投影与对账后原子切换到新模型权威模式；切换后的回滚 MUST 使用经验证的反向迁移或备份恢复。
 

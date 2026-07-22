@@ -20,7 +20,7 @@
 
 ### Modified Capabilities
 
-- `position-history`: 增加可配置保留、服务端下采样和批量清理边界。
+- `position-history`: 增加可配置保留和可恢复的批量清理边界；服务端下采样由前置仓位领域 change 交付。
 - `runtime-settings`: 增加通知、历史保留、数据和诊断设置及运行时校验。
 - `local-operations`: 增强 WAL 感知备份、恢复验证、诊断和数据库容量维护。
 - `frontend-shell`: 浏览器特权只能由明确用户操作请求，并提供权限降级状态。

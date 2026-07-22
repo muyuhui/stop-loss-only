@@ -21,7 +21,7 @@
 ### Modified Capabilities
 
 - `price-fetching`: 增加显式行情状态、提供方/日历端口、有界调用、离线 fixture 和周期级缓存。
-- `stop-loss-engine`: 只允许可行动行情触发，并保证触发、事件和告警原子、幂等且只报告已提交结果。
+- `stop-loss-engine`: 只允许可行动行情触发，并保证持仓状态与告警原子、幂等且只报告已提交结果；领域事件由后续仓位领域 change 引入。
 - `quality-gates`: 必选测试阻断网络，并覆盖 provider 契约、并发触发和完全离线冒烟。
 
 ## Impact

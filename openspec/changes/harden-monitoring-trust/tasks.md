@@ -13,9 +13,9 @@
 - [ ] 2.3 Implement deterministic fixture quote and calendar adapters that cannot import production providers.
 - [ ] 2.4 Refactor stock, ETF/LOF, and fund adapters to map raw data into normalized quotes.
 - [ ] 2.5 Add connection and total timeouts, bounded retry, jitter, circuit state, and redacted errors.
-- [ ] 2.6 Implement market-calendar caching with expiry and explicit degraded fallback.
+- [ ] 2.6 Implement market-calendar caching with expiry and explicit `authoritative`/`valid_cache`/`weekday_fallback` sources; weekday fallback must not make quotes actionable without independently verified current-session timestamps.
 - [ ] 2.7 Implement cycle-level dataset caching so each market dataset downloads at most once per cycle.
-- [ ] 2.8 Add provider contract fixtures for missing/renamed columns, empty data, invalid prices, delays, closes, NAVs, and holidays.
+- [ ] 2.8 Add provider contract fixtures for missing/renamed columns, empty data, invalid prices, delays, closes, NAVs, holidays, and weekday-fallback actionability.
 
 ## 3. Monitoring transactions and diagnostics
 

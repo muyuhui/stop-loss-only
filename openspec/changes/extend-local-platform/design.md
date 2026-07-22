@@ -36,7 +36,7 @@
 
 ### 5. 维护任务有界且可验证
 
-历史分批清理；图表服务端下采样。备份使用 SQLite 一致性快照，manifest 包含 checksum、schema 版本和 WAL 感知信息；UI 只能创建备份，恢复仍需停服命令。
+历史分批清理并保留可恢复进度；图表服务端下采样已经由前置仓位领域 change 提供，本 change 不重复实现。备份使用 SQLite 一致性快照，manifest 包含 checksum、schema 版本和 WAL 感知信息；UI 只能创建备份，恢复仍需停服命令。
 
 ## Risks / Trade-offs
 

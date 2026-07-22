@@ -23,8 +23,16 @@
 - **THEN** 系统将生命周期设为 `closed`、保存关闭时间并停止监控
 
 ### Requirement: Calculate portfolio values with explicit coverage
-系统 SHALL 在后端计算已实现盈亏、未实现盈亏、仓位权重、止损风险金额、预计止损损失和可行动行情估值覆盖率，并以 Decimal 安全格式返回。
+系统 SHALL 使用未舍入 Decimal 中间值在后端计算已实现盈亏、未实现盈亏、仓位权重、止损风险金额、止损价盈亏和预计止损损失，并分别返回按开放仓位数量与剩余成本计算的可行动行情覆盖率。公式 MUST 为：`actionable_position_coverage_pct = actionable_open_position_count / open_position_count * 100`、`valuation_coverage_pct = covered_remaining_cost / total_open_remaining_cost * 100`、`position_weight_pct = actionable_market_value / total_actionable_market_value * 100`、`stop_risk_amount = max(0, current_price - stop_price) * remaining_quantity`、`pnl_at_stop = (stop_price - remaining_unit_cost) * remaining_quantity - estimated_exit_cost`、`estimated_loss_at_stop = max(0, -pnl_at_stop)`。零分母结果 MUST 返回 `null` 和对应计数。
 
 #### Scenario: One position has no actionable quote
 - **WHEN** 组合中一个开放仓位没有可行动行情
 - **THEN** 实时组合指标排除该估值并降低覆盖率，响应明确缺口
+
+#### Scenario: Coverage uses position count and remaining cost
+- **WHEN** 两个开放仓位剩余成本分别为 `1000` 和 `500`，且只有第一个仓位具有可行动行情
+- **THEN** 仓位数量覆盖率为 `50.00`，剩余成本估值覆盖率为 `66.67`，并返回 covered/open 数量 `1/2`
+
+#### Scenario: Stop metrics distinguish downside and loss
+- **WHEN** 剩余单位成本为 `10`、数量为 `100`、当前价为 `9.5`、止损价为 `9` 且预计退出成本为 `5`
+- **THEN** `stop_risk_amount=50`、`pnl_at_stop=-105`、`estimated_loss_at_stop=105`，响应明确退出成本估算口径

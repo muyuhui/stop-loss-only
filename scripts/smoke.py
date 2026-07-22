@@ -77,8 +77,24 @@ def main() -> int:
                     "code": "000001", "name": "冒烟测试", "type": "stock", "buy_price": 10,
                     "quantity": 100, "buy_date": "2026-01-01", "stop_loss_method": "fixed", "stop_loss_value": 9,
                 })
+                _, updated = request(f"{base}/holdings/{created['id']}", "PUT", {
+                    "name": "冒烟测试已更新", "stop_loss_method": "percentage", "stop_loss_value": 5,
+                })
+                assert updated["name"] == "冒烟测试已更新"
+                assert updated["stop_loss_method"] == "percentage"
+                _, detail = request(f"{base}/holdings/{created['id']}")
+                assert detail["stop_loss_price"] == 9.5
                 _, refresh = request(f"{base}/prices/refresh", "POST")
                 assert refresh["triggered"][0]["id"] == created["id"]
+                _, alerts = request(f"{base}/alerts")
+                assert alerts["items"][0]["holding_name"] == "冒烟测试已更新"
+                request(f"{base}/alerts/{alerts['items'][0]['id']}/read", "PUT")
+                _, unread = request(f"{base}/alerts/count")
+                assert unread["count"] == 0
+                _, settings = request(f"{base}/settings", "PUT", {
+                    "poll_interval": 45, "monitor_interval": 7,
+                })
+                assert settings == {"poll_interval": 45, "monitor_interval": 7}
                 request(f"{base}/holdings/{created['id']}/close", "POST", {"close_price": 8.7})
                 _, dashboard = request(f"{base}/dashboard")
                 assert dashboard["closed_count"] == 1

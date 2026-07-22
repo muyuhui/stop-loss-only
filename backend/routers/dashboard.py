@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from config import config
 from database import get_db
 from models import Alert, Holding
+from time_utils import as_utc
 from services.presentation import holding_payload
 from services.stop_loss import to_decimal
 from schemas import DashboardResponse
@@ -39,7 +40,7 @@ def get_dashboard(db: Session = Depends(get_db)):
         latest_payload = {
             "id": latest.id, "holding_name": latest.holding_name, "holding_code": latest.holding_code,
             "trigger_price": float(latest.trigger_price), "current_price": float(latest.current_price),
-            "created_at": latest.created_at,
+            "created_at": as_utc(latest.created_at),
         }
     counts = {name: sum(1 for h in holdings if h.status == name) for name in ("holding", "triggered", "closed")}
     return {

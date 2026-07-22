@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from models import Holding
 from services.stop_loss import StopLossEngine, to_decimal
+from time_utils import as_market_time, as_utc
 
 
 def holding_payload(holding: Holding) -> dict:
@@ -18,6 +19,7 @@ def holding_payload(holding: Holding) -> dict:
         "stop_loss_price": float(stop_loss_price), "profit_loss_pct": pnl,
         "stop_loss_distance_pct": distance, "status": holding.status,
         "close_price": float(holding.close_price) if holding.close_price is not None else None,
-        "quote_source": holding.quote_source, "quoted_at": holding.quoted_at, "fetched_at": holding.fetched_at,
-        "created_at": holding.created_at, "updated_at": holding.updated_at,
+        "quote_source": holding.quote_source,
+        "quoted_at": as_market_time(holding.quoted_at), "fetched_at": as_market_time(holding.fetched_at),
+        "created_at": as_utc(holding.created_at), "updated_at": as_utc(holding.updated_at),
     }

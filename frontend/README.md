@@ -1,5 +1,39 @@
-# Vue 3 + Vite
+# 止损不止盈前端
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+基于 Vue 3、Element Plus、Pinia 和 Vite 的本地风险监控界面。页面遵循“先看风险，再看资产，最后处理操作”的信息层级，并支持 360px 以上的桌面、平板和手机视口。
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## 页面结构
+
+- 仪表盘：组合风险、资产摘要、按止损距离排序的活动持仓和今日告警。
+- 持仓管理：桌面精简表格、平板与手机持仓卡片、新增持仓表单。
+- 持仓详情：收益与止损摘要、止损编辑、真实价格刷新、平仓和独立危险操作。
+- 告警历史：未读状态、触发价格快照和移动端告警卡片。
+- 设置：及时、均衡、省资源三个预设，以及可展开的精确间隔设置。
+
+## 视觉与交互约定
+
+- 全局视觉变量位于 `src/styles.css`，页面优先使用语义颜色和统一间距。
+- 低于 768px 使用底部主导航；持仓和告警使用卡片布局，避免横向表格。
+- 盈亏、告警和止损风险同时通过文字或符号表达，不只依赖红绿颜色。
+- 数据页区分首次加载、后台刷新、失败、空数据和数据过期状态。
+- 删除与平仓等高风险操作必须与常规操作分组，并保留明确确认步骤。
+
+## 本地开发
+
+在项目根目录完成 `setup.ps1` 后运行：
+
+```powershell
+cd frontend
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+开发服务器将 `/api` 代理到 `http://localhost:8001`。可通过 `VITE_API_PROXY_TARGET` 修改代理目标。
+
+## 验证
+
+```powershell
+npm test
+npm run build
+```
+
+`npm run build` 同时执行生产包体预算检查。完整后端、前端、隔离冒烟和 OpenSpec 校验请在项目根目录运行 `./verify.ps1`。

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Alert
+from time_utils import as_market_time, as_utc
 
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -13,8 +14,8 @@ def _payload(alert: Alert) -> dict:
         "id": alert.id, "holding_id": alert.holding_id, "holding_name": alert.holding_name,
         "holding_code": alert.holding_code, "trigger_price": float(alert.trigger_price),
         "current_price": float(alert.current_price), "quote_source": alert.quote_source,
-        "quoted_at": alert.quoted_at.isoformat() if alert.quoted_at else None,
-        "read": alert.read, "created_at": alert.created_at.isoformat() if alert.created_at else None,
+        "quoted_at": as_market_time(alert.quoted_at).isoformat() if alert.quoted_at else None,
+        "read": alert.read, "created_at": as_utc(alert.created_at).isoformat() if alert.created_at else None,
     }
 
 

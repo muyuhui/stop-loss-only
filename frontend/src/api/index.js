@@ -6,6 +6,12 @@ const api = axios.create({
   timeout: 15000,
 })
 
+export const PRICE_REFRESH_TIMEOUT_MS = 60000
+
+export function requestPriceRefresh() {
+  return api.post('/prices/refresh', undefined, { timeout: PRICE_REFRESH_TIMEOUT_MS })
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {

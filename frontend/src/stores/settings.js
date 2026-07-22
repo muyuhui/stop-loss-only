@@ -11,8 +11,9 @@ export const useSettingsStore = defineStore('settings', () => {
       const res = await api.get('/settings')
       pollInterval.value = res.data.poll_interval || 30
       monitorInterval.value = res.data.monitor_interval || 5
+      return true
     } catch {
-      // use defaults
+      return false
     }
   }
 

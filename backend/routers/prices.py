@@ -7,6 +7,7 @@ from database import get_db
 from models import Holding
 from services.monitoring import run_monitoring_cycle
 from schemas import RefreshCycleResponse
+from time_utils import as_market_time
 
 
 router = APIRouter(prefix="/prices", tags=["prices"])
@@ -17,7 +18,8 @@ def get_prices(db: Session = Depends(get_db)):
     holdings = db.query(Holding).filter(Holding.status.in_(("holding", "triggered"))).all()
     return {"items": [{
         "code": h.code, "name": h.name, "current_price": float(h.current_price),
-        "source": h.quote_source, "quoted_at": h.quoted_at, "fetched_at": h.fetched_at,
+        "source": h.quote_source,
+        "quoted_at": as_market_time(h.quoted_at), "fetched_at": as_market_time(h.fetched_at),
     } for h in holdings]}
 
 

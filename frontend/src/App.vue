@@ -1,19 +1,30 @@
 <script setup>
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElNotification } from 'element-plus'
-import { Bell } from '@element-plus/icons-vue'
+import { Bell, HomeFilled, List, Setting, WarningFilled } from '@element-plus/icons-vue'
 import api from './api'
 import { useAlertStore } from './stores/alert'
 import { useSettingsStore } from './stores/settings'
 import { createPoller } from './utils/poller'
 
 const router = useRouter()
+const route = useRoute()
 const alertStore = useAlertStore()
 const settingsStore = useSettingsStore()
 const lastAlertId = ref(0)
 const initialized = ref(false)
 const alertPoller = createPoller(checkAlerts)
+const navigation = [
+  { path: '/', label: '仪表盘', icon: HomeFilled },
+  { path: '/holdings', label: '持仓', desktopLabel: '持仓管理', icon: List },
+  { path: '/alerts', label: '告警', desktopLabel: '告警历史', icon: WarningFilled },
+  { path: '/settings', label: '设置', icon: Setting },
+]
+
+function isActive(path) {
+  return path === '/' ? route.path === '/' : route.path.startsWith(path)
+}
 
 async function checkAlerts() {
   try {
@@ -57,35 +68,54 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <el-container style="min-height: 100vh">
-    <el-header style="background: #1d1e2c; padding: 0 24px; display: flex; align-items: center; justify-content: space-between">
-      <div style="display: flex; align-items: center; gap: 32px">
-        <span style="color: #fff; font-size: 18px; font-weight: 700; cursor: pointer" @click="router.push('/')">
-          止损不止盈
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="app-header__inner">
+        <button class="brand" type="button" aria-label="返回仪表盘" @click="router.push('/')">
+          <span class="brand__mark" aria-hidden="true">止</span>
+          <span class="brand__text">止损不止盈</span>
+        </button>
+        <nav class="desktop-nav" aria-label="主导航">
+          <router-link
+            v-for="item in navigation"
+            :key="item.path"
+            :to="item.path"
+            class="desktop-nav__link"
+            :class="{ 'is-active': isActive(item.path) }"
+            :aria-current="isActive(item.path) ? 'page' : undefined"
+          >
+            {{ item.desktopLabel || item.label }}
+          </router-link>
+        </nav>
+        <button class="alert-button" type="button" aria-label="查看告警历史" @click="router.push('/alerts')">
+          <el-badge :value="alertStore.unreadCount" :hidden="alertStore.unreadCount === 0">
+            <el-icon :size="20"><Bell /></el-icon>
+          </el-badge>
+        </button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="page-container">
+        <router-view />
+      </div>
+    </main>
+
+    <nav class="mobile-nav" aria-label="移动端主导航">
+      <router-link
+        v-for="item in navigation"
+        :key="item.path"
+        :to="item.path"
+        class="mobile-nav__link"
+        :class="{ 'is-active': isActive(item.path) }"
+        :aria-current="isActive(item.path) ? 'page' : undefined"
+      >
+        <el-icon :size="20"><component :is="item.icon" /></el-icon>
+        <span>{{ item.label }}</span>
+        <span v-if="item.path === '/alerts' && alertStore.unreadCount" class="mobile-nav__badge">
+          {{ alertStore.unreadCount > 99 ? '99+' : alertStore.unreadCount }}
         </span>
-        <el-menu
-          mode="horizontal"
-          :default-active="router.currentRoute.value.path"
-          @select="(index) => router.push(index)"
-          background-color="transparent"
-          text-color="#a0a0b8"
-          active-text-color="#fff"
-          style="border-bottom: none"
-        >
-          <el-menu-item index="/">仪表盘</el-menu-item>
-          <el-menu-item index="/holdings">持仓管理</el-menu-item>
-          <el-menu-item index="/alerts">告警历史</el-menu-item>
-          <el-menu-item index="/settings">设置</el-menu-item>
-        </el-menu>
-      </div>
-      <div style="display: flex; align-items: center; gap: 8px; cursor: pointer" @click="router.push('/alerts')">
-        <el-badge :value="alertStore.unreadCount" :hidden="alertStore.unreadCount === 0">
-          <el-icon :size="20" color="#a0a0b8"><Bell /></el-icon>
-        </el-badge>
-      </div>
-    </el-header>
-    <el-main style="background: #f5f6fa; padding: 24px">
-      <router-view />
-    </el-main>
-  </el-container>
+      </router-link>
+    </nav>
+  </div>
 </template>

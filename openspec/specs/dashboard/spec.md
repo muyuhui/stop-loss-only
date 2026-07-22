@@ -3,9 +3,7 @@
 ## Purpose
 
 Provide a portfolio overview dashboard with summary metrics, holdings status, and alert information.
-
 ## Requirements
-
 ### Requirement: Portfolio summary
 系统 SHALL 将 `holding`、`triggered` 的当前敞口和未实现收益，与 `closed` 的毛已实现收益分开计算，并返回各生命周期数量。
 
@@ -40,11 +38,23 @@ Provide a portfolio overview dashboard with summary metrics, holdings status, an
 - **THEN** 今日告警数为零，最新告警为 null
 
 ### Requirement: Frontend dashboard layout
-The frontend SHALL display the dashboard as a grid with: portfolio summary cards at top, holdings table in middle, and alert summary at bottom.
+前端 SHALL 以风险优先的层级展示仪表盘：首先呈现组合风险和待处理告警，其次呈现总盈亏、市值与成本摘要，最后呈现按止损距离排序的活动持仓和紧凑的今日告警摘要；布局 SHALL 根据视口宽度重排而不产生页面级横向滚动。
 
-#### Scenario: Dashboard loads successfully
-- **WHEN** user navigates to the dashboard page
-- **THEN** the page displays summary cards, a holdings table with real-time prices, and today's alert summary
+#### Scenario: 桌面端加载成功
+- **WHEN** 用户在至少 1024px 宽的视口打开仪表盘且请求成功
+- **THEN** 页面先显示风险摘要，再显示资产指标、持仓概览和今日告警，并直接展示需要处理的告警数量
+
+#### Scenario: 手机端加载成功
+- **WHEN** 用户在 360px 到 767px 宽的视口打开仪表盘且请求成功
+- **THEN** 摘要以不超过两列的结构排列，持仓使用适合窄屏的完整摘要卡片，页面不出现横向滚动
+
+#### Scenario: 存在临近止损持仓
+- **WHEN** 多个活动持仓具有不同的止损距离
+- **THEN** 持仓概览按止损距离从近到远排列，并使临近或已触发项具有明确的非颜色风险提示
+
+#### Scenario: 今日没有告警
+- **WHEN** 今日告警数为零且最新告警为 null
+- **THEN** 页面使用紧凑状态提示表达暂无告警，不保留大面积空白告警面板
 
 ### Requirement: Real-time frontend refresh
 前端 SHALL 使用生效的运行时轮询间隔刷新仪表盘，并保证最多只有一个仪表盘计时器。
@@ -60,3 +70,15 @@ The frontend SHALL display the dashboard as a grid with: portfolio summary cards
 #### Scenario: 离开仪表盘
 - **WHEN** 用户导航离开仪表盘
 - **THEN** 清除活动计时器
+
+### Requirement: 仪表盘刷新可感知
+前端 SHALL 在仪表盘展示最后成功更新时间，并区分首次加载、后台刷新、刷新失败和数据可能过期状态。
+
+#### Scenario: 后台轮询成功
+- **WHEN** 仪表盘已有数据且下一次轮询成功
+- **THEN** 页面平稳更新内容和最后更新时间，不清空持仓或闪回初始零值
+
+#### Scenario: 后台轮询失败
+- **WHEN** 仪表盘已有数据且下一次轮询失败
+- **THEN** 页面保留现有数据并提供轻量失败提示和手动重试入口
+

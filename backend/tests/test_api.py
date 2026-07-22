@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -48,6 +48,8 @@ def test_holding_contract_consistency_pagination_and_validation(api):
     assert created.status_code == 201
     item = created.json()
     assert item["stop_loss_price"] == 9
+    assert item["created_at"].endswith(("Z", "+00:00"))
+    assert item["updated_at"].endswith(("Z", "+00:00"))
     detail = client.get(f"/api/holdings/{item['id']}").json()
     page = client.get("/api/holdings?page=1&size=1&status=holding").json()
     board = client.get("/api/dashboard").json()
@@ -78,15 +80,27 @@ def test_lifecycle_close_and_alert_snapshot(api):
     db = factory()
     row = db.get(Holding, item["id"])
     row.status = "triggered"
-    db.add(Alert(holding_id=row.id, holding_name=row.name, holding_code=row.code, lifecycle_key="test", trigger_price=9, current_price=8.8))
+    row.quoted_at = datetime(2026, 7, 22, 10, 4, 1)
+    row.fetched_at = datetime(2026, 7, 22, 10, 4, 2)
+    db.add(Alert(
+        holding_id=row.id, holding_name=row.name, holding_code=row.code, lifecycle_key="test",
+        trigger_price=9, current_price=8.8, quoted_at=datetime(2026, 7, 22, 10, 4, 1),
+    ))
     db.commit()
     db.close()
+    detail = client.get(f"/api/holdings/{item['id']}").json()
+    assert detail["quoted_at"].endswith("+08:00")
+    assert detail["fetched_at"].endswith("+08:00")
+    prices_page = client.get("/api/prices").json()
+    assert prices_page["items"][0]["quoted_at"].endswith("+08:00")
     assert client.put(f"/api/holdings/{item['id']}", json={"name": "x"}).status_code == 400
     assert client.delete(f"/api/holdings/{item['id']}").status_code == 400
     closed = client.post(f"/api/holdings/{item['id']}/close", json={"close_price": 8.7})
     assert closed.json()["status"] == "closed"
     assert client.delete(f"/api/holdings/{item['id']}").status_code == 204
     alerts_page = client.get("/api/alerts").json()
+    assert alerts_page["items"][0]["quoted_at"].endswith("+08:00")
+    assert alerts_page["items"][0]["created_at"].endswith("+00:00")
     assert alerts_page["items"][0]["holding_name"] == "测试股票"
 
 
@@ -107,6 +121,7 @@ def test_dashboard_mixed_portfolio_and_today_alert(api):
     assert data["triggered_count"] == 1 and data["closed_count"] == 1
     assert data["today_alert_count"] == 1
     assert data["latest_alert"]["holding_code"] == "000002"
+    assert data["latest_alert"]["created_at"].endswith(("Z", "+00:00"))
     assert len(data["holdings"]) == 1
 
 

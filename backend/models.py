@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Integer, Numeric, String, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, Index, Integer, Numeric, String, UniqueConstraint, func
 
 from database import Base
 
@@ -32,6 +32,22 @@ class Holding(Base):
     fetched_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PriceHistory(Base):
+    __tablename__ = "price_history"
+    __table_args__ = (
+        UniqueConstraint("code", "asset_type", "trade_date", name="uq_price_history_asset_date"),
+        Index("ix_price_history_asset_date", "code", "asset_type", "trade_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(20), nullable=False)
+    asset_type = Column(String(10), nullable=False)
+    trade_date = Column(Date, nullable=False)
+    price = Column(Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=False)
+    source = Column(String(50), nullable=False)
+    fetched_at = Column(DateTime(timezone=True), nullable=False)
 
 
 class Alert(Base):

@@ -7,6 +7,16 @@ export default defineConfig({
   plugins: [vue()],
   build: {
     manifest: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'vendor-zrender', test: /node_modules[\\/]zrender[\\/]/ },
+            { name: 'vendor-echarts', test: /node_modules[\\/]echarts[\\/]/ },
+          ],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

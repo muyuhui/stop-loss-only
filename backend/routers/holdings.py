@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Holding
-from schemas import HoldingClose, HoldingCreate, HoldingPage, HoldingResponse, HoldingUpdate
+from schemas import HoldingClose, HoldingCreate, HoldingHistoryResponse, HoldingPage, HoldingResponse, HoldingUpdate
+from services.price_history import HistoryUnavailable, holding_history
 from services.presentation import holding_payload
 from services.stop_loss import StopLossEngine, to_decimal
 
@@ -53,6 +54,21 @@ def list_holdings(
 @router.get("/{holding_id}", response_model=HoldingResponse)
 def get_holding(holding_id: int, db: Session = Depends(get_db)):
     return holding_payload(_get_holding(db, holding_id))
+
+
+@router.get("/{holding_id}/history", response_model=HoldingHistoryResponse)
+def get_holding_history(
+    holding_id: int,
+    range_name: str = Query("3m", alias="range", pattern="^(1m|3m|6m|1y)$"),
+    db: Session = Depends(get_db),
+):
+    holding = _get_holding(db, holding_id)
+    try:
+        return holding_history(db, holding, range_name)
+    except HistoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail={
+            "message": "历史行情暂时不可用", "correlation_id": exc.correlation_id,
+        }) from exc
 
 
 @router.put("/{holding_id}", response_model=HoldingResponse)

@@ -59,6 +59,26 @@ class HoldingPage(BaseModel):
     size: int
 
 
+class HoldingHistoryPoint(BaseModel):
+    trade_date: date
+    price: float
+    stop_loss_price: float
+    triggered: bool
+
+
+class HoldingHistoryResponse(BaseModel):
+    holding_id: int
+    range: Literal["1m", "3m", "6m", "1y"]
+    buy_price: float
+    stop_loss_method: str
+    stop_loss_note: str
+    source: str | None = None
+    last_trade_date: date | None = None
+    stale: bool
+    warning: str | None = None
+    points: list[HoldingHistoryPoint]
+
+
 class SettingsResponse(BaseModel):
     poll_interval: int
     monitor_interval: int

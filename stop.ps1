@@ -39,15 +39,29 @@ function Stop-OwnedProcess([string]$RecordName) {
         Write-Warning "PID $($record.pid) ownership check failed; it was not terminated."
         return
     }
-    $listener = Get-NetTCPConnection -State Listen -LocalPort $record.port -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -eq $record.pid }
+    $portListener = Get-NetTCPConnection -State Listen -LocalPort $record.port -ErrorAction SilentlyContinue | Select-Object -First 1
+    $listener = $portListener | Where-Object { $_.OwningProcess -eq $record.pid }
     $command = (Get-CimInstance Win32_Process -Filter "ProcessId=$($record.pid)" -ErrorAction SilentlyContinue).CommandLine
-    if (-not $listener -and $command -notmatch [regex]::Escape([string]$record.port)) {
-        Write-Warning "PID $($record.pid) command/port check failed; it was not terminated."
-        return
-    }
+    # The root/start-time check above is the durable ownership proof. Command
+    # line and listener inspection can be denied on locked-down Windows hosts,
+    # so they are supporting diagnostics rather than a second hard gate.
     # Descendants are selected by verified parentage, so npm/node helpers are
     # cleaned up without touching unrelated listeners.
+    $serviceConfirmed = $false
+    try {
+        if ($record.kind -eq 'backend') {
+            $openApi = Invoke-RestMethod -Uri "http://127.0.0.1:$($record.port)/openapi.json" -TimeoutSec 2
+            $pathNames = @($openApi.paths.PSObject.Properties.Name)
+            $serviceConfirmed = ($pathNames -contains '/api/holdings') -and ($pathNames -contains '/api/prices/refresh')
+        } else {
+            $page = Invoke-WebRequest -Uri "http://127.0.0.1:$($record.port)" -UseBasicParsing -TimeoutSec 2
+            $serviceConfirmed = $page.StatusCode -eq 200 -and $page.Content -match '/@vite/client'
+        }
+    } catch { }
     Stop-VerifiedTree ([int]$record.pid)
+    if ($serviceConfirmed -and $portListener -and $portListener.OwningProcess -ne $record.pid) {
+        Stop-Process -Id $portListener.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
     Remove-Item -LiteralPath $recordPath -Force
 }
 

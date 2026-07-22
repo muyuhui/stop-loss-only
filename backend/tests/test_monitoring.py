@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from database import Base
 from migrations import backup_database, current_version, downgrade, restore_database, upgrade
-from models import Alert, Holding
+from models import Alert, Holding, PriceHistory
 from services.market_clock import MARKET_TZ, is_in_trading_session, normalize_trade_date
 from services.monitoring import run_monitoring_cycle
 
@@ -91,10 +91,11 @@ def test_legacy_migration_backup_and_restore(tmp_path: Path):
         conn.execute(text("INSERT INTO holdings VALUES (1,'000001','测试','stock',10,100,'2026-01-01',8.8,10,'fixed',9,9,'stopped_out',8.8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
         conn.execute(text("INSERT INTO alerts VALUES (1,1,9,8.8,0,CURRENT_TIMESTAMP)"))
     upgrade(engine, url, tmp_path / "backups")
-    assert current_version(engine) == 2
+    assert current_version(engine) == 3
     with engine.connect() as conn:
         assert conn.execute(text("SELECT status FROM holdings WHERE id=1")).scalar_one() == "closed"
         assert conn.execute(text("SELECT holding_name FROM alerts WHERE id=1")).scalar_one() == "测试"
+        assert "price_history" in {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
     downgrade(engine)
     assert current_version(engine) == 0
     with engine.connect() as conn:

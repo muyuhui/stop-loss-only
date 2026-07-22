@@ -8,6 +8,19 @@ $root = $PSScriptRoot
 $logDir = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
+function Normalize-ProcessPathEnvironment {
+    # Windows environment names are case-insensitive, while Start-Process builds
+    # a case-insensitive dictionary and fails if both Path and PATH are present.
+    $variables = [Environment]::GetEnvironmentVariables('Process')
+    $pathValue = ($variables.GetEnumerator() | Where-Object { $_.Key -ceq 'Path' } | Select-Object -First 1).Value
+    if (-not $pathValue) {
+        $pathValue = ($variables.GetEnumerator() | Where-Object { $_.Key -ieq 'Path' } | Select-Object -First 1).Value
+    }
+    [Environment]::SetEnvironmentVariable('PATH', $null, 'Process')
+    [Environment]::SetEnvironmentVariable('Path', $null, 'Process')
+    [Environment]::SetEnvironmentVariable('Path', $pathValue, 'Process')
+}
+
 function Assert-PortAvailable([int]$Port) {
     $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($listener) {
@@ -37,6 +50,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Database migration failed.' }
 } finally { Pop-Location }
 
+Normalize-ProcessPathEnvironment
 $backend = Start-Process -WindowStyle Hidden -FilePath 'python' -ArgumentList @('-m','uvicorn','main:app','--host','127.0.0.1','--port',"$BackendPort",'--workers','1') -WorkingDirectory (Join-Path $root 'backend') -RedirectStandardOutput (Join-Path $logDir 'backend.log') -RedirectStandardError (Join-Path $logDir 'backend.err.log') -PassThru
 Save-ProcessRecord $backend 'backend' $BackendPort (Join-Path $root '.backend.process.json')
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
@@ -47,7 +61,8 @@ $ready = $false
 for ($attempt = 1; $attempt -le 20; $attempt++) {
     try {
         $status = Invoke-RestMethod -Uri "http://127.0.0.1:$BackendPort/api/health/ready" -TimeoutSec 2
-        if ($status.status -eq 'ok' -and (Get-NetTCPConnection -State Listen -LocalPort $FrontendPort -ErrorAction SilentlyContinue)) { $ready = $true; break }
+        $frontendStatus = Invoke-WebRequest -Uri "http://127.0.0.1:$FrontendPort" -UseBasicParsing -TimeoutSec 2
+        if ($status.status -eq 'ok' -and $frontendStatus.StatusCode -eq 200) { $ready = $true; break }
     } catch { }
     Start-Sleep -Seconds 1
 }

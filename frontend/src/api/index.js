@@ -12,6 +12,10 @@ export function requestPriceRefresh() {
   return api.post('/prices/refresh', undefined, { timeout: PRICE_REFRESH_TIMEOUT_MS })
 }
 
+export function requestHoldingHistory(holdingId, range = '3m') {
+  return api.get(`/holdings/${holdingId}/history`, { params: { range }, timeout: 60000 })
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {

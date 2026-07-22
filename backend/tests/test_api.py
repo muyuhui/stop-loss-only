@@ -154,6 +154,26 @@ def test_manual_refresh_partial_and_fatal_contract(api, monkeypatch):
     assert fatal.json()["detail"]["correlation_id"]
 
 
+def test_holding_history_contract_ranges_and_errors(api, monkeypatch):
+    client, _, _ = api
+    item = client.post("/api/holdings", json=holding_body()).json()
+    rows = [
+        {"trade_date": date(2026, 7, 20), "price": Decimal("10.2"), "source": "fixture-history"},
+        {"trade_date": date(2026, 7, 21), "price": Decimal("8.8"), "source": "fixture-history"},
+    ]
+    monkeypatch.setattr("services.price_history.local_now", lambda: datetime(2026, 7, 22, 12, 0))
+    monkeypatch.setattr("services.price_history.fetch_price_history", lambda *args: rows)
+    for range_name in ("1m", "3m", "6m", "1y"):
+        response = client.get(f"/api/holdings/{item['id']}/history?range={range_name}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["range"] == range_name
+        assert data["points"] == sorted(data["points"], key=lambda point: point["trade_date"])
+        assert data["stop_loss_note"]
+    assert client.get(f"/api/holdings/{item['id']}/history?range=all").status_code == 422
+    assert client.get("/api/holdings/999/history").status_code == 404
+
+
 def test_openapi_contract_contains_models_and_statuses(api):
     _, _, app = api
     schema = app.openapi()

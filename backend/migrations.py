@@ -14,7 +14,7 @@ from database import Base
 import models  # noqa: F401 - 注册 ORM metadata
 
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
 
 
 def sqlite_path(database_url: str) -> Path:

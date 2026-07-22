@@ -2,8 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api, { requestPriceRefresh } from '../api'
+import api, { requestHoldingHistory, requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
+import HoldingPriceChart from '../components/HoldingPriceChart.vue'
 import { formatAssetMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
 import { priceInputMeta, stopLossInputMeta } from '../utils/holdingForm'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
@@ -20,6 +21,11 @@ const deleting = ref(false)
 const refreshing = ref(false)
 const closePrice = ref(null)
 const request = useRequestState()
+const historyData = ref(null)
+const historyRange = ref('3m')
+const historyLoading = ref(false)
+const historyError = ref('')
+let historyRequestId = 0
 const editForm = reactive({ name: '', stop_loss_method: '', stop_loss_value: null })
 
 const priceMeta = computed(() => priceInputMeta(holding.value.type))
@@ -35,8 +41,26 @@ async function load() {
     editForm.stop_loss_method = res.data.stop_loss_method
     editForm.stop_loss_value = res.data.stop_loss_value
     request.succeed()
+    void loadHistory()
   } catch {
     request.fail('持仓详情加载失败，请返回列表或重试。')
+  }
+}
+
+async function loadHistory(range = historyRange.value) {
+  const requestId = ++historyRequestId
+  historyRange.value = range
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const res = await requestHoldingHistory(route.params.id, range)
+    if (requestId !== historyRequestId) return
+    historyData.value = res.data
+  } catch {
+    if (requestId !== historyRequestId) return
+    historyError.value = '历史行情加载失败，请稍后重试。'
+  } finally {
+    if (requestId === historyRequestId) historyLoading.value = false
   }
 }
 
@@ -135,6 +159,16 @@ onMounted(load)
         <article><span>止损价</span><strong class="number">{{ formatAssetMoney(holding.stop_loss_price, holding.type) }}</strong><small>{{ methodLabel(holding.stop_loss_method) }}</small></article>
         <article :class="`summary-risk--${holdingRisk.level}`"><span>距止损</span><strong class="number">{{ formatSignedPercent(holding.stop_loss_distance_pct) }}</strong><small>{{ holdingRisk.label }}</small></article>
       </section>
+
+      <HoldingPriceChart
+        :data="historyData"
+        :asset-type="holding.type"
+        :range="historyRange"
+        :loading="historyLoading"
+        :error="historyError"
+        @range-change="loadHistory"
+        @retry="loadHistory()"
+      />
 
       <section class="panel" aria-labelledby="stop-settings-title">
         <header class="panel__header">

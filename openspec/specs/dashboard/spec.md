@@ -82,3 +82,32 @@ Provide a portfolio overview dashboard with summary metrics, holdings status, an
 - **WHEN** 仪表盘已有数据且下一次轮询失败
 - **THEN** 页面保留现有数据并提供轻量失败提示和手动重试入口
 
+### Requirement: Return Decimal-safe portfolio accounting summaries
+仪表盘 API SHALL 从新仓位领域模型计算开放市值、剩余成本、净已实现/未实现盈亏、风险金额和估值覆盖率，并以 Decimal 安全表示返回。
+
+#### Scenario: Active and closed positions coexist
+- **WHEN** 组合同时包含开放、部分平仓和关闭仓位
+- **THEN** 开放指标只使用剩余数量，已实现指标包含全部 allocation，二者不得重复计算
+
+#### Scenario: Quote coverage is incomplete
+- **WHEN** 部分开放仓位没有可行动行情
+- **THEN** API 返回降低的覆盖率并明确实时汇总未覆盖的仓位数量
+
+### Requirement: Present monitoring trust before portfolio totals
+仪表盘 SHALL 在首屏持续显示市场/调度状态、最近成功时间、可行动行情覆盖率、失败数量和诊断入口，并将待处理风险置于普通资产汇总之前。
+
+#### Scenario: Monitoring is degraded without trigger
+- **WHEN** 最新监控周期降级但没有仓位触发
+- **THEN** 页面明确显示监控降级，且不得用“安全”视觉掩盖数据不可信
+
+#### Scenario: Background refresh fails
+- **WHEN** 后台刷新失败但存在上次成功数据
+- **THEN** 页面保留上次数据、显示年龄和错误状态，不清空仪表盘
+
+### Requirement: Use a responsive risk-first dashboard layout
+仪表盘 SHALL 在桌面展示高密度风险表，在移动端展示紧凑行动摘要，并避免固定导航遮挡、横向滚动和关键状态截断。
+
+#### Scenario: Mobile dashboard
+- **WHEN** 视口为 390x844
+- **THEN** 风险行动、行情可信度和关键指标无需横向滚动即可访问
+

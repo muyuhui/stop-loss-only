@@ -3,9 +3,7 @@
 ## Purpose
 
 Calculate stop-loss prices and detect triggers using three methods: fixed price, percentage, and trailing (moving) stop-loss.
-
 ## Requirements
-
 ### Requirement: Calculate fixed-price stop-loss
 系统 SHALL 使用十进制定点运算，按配置价格精度计算并保存固定价格止损线。
 
@@ -52,27 +50,27 @@ Calculate stop-loss prices and detect triggers using three methods: fixed price,
 - **THEN** 最高价和移动止损线均不变化
 
 ### Requirement: Detect stop-loss trigger
-系统 SHALL 用新鲜有效现价与十进制止损价比较；当现价小于等于止损价时，原子地把状态从 `holding` 改为 `triggered` 并创建一个告警。触发不代表已经成交。
+系统 SHALL 仅用可行动的新鲜 Decimal 现价与止损价比较；当现价小于等于止损价时，使用版本条件和稳定幂等键原子提交状态变化与一个告警，响应只允许报告已提交触发。
 
 #### Scenario: 新鲜行情跌破止损线
-- **WHEN** `holding` 持仓收到新鲜现价 `8.80`，止损价为 `9.00`
-- **THEN** 状态变为 `triggered`，并且只创建一个告警
+- **WHEN** 活动持仓收到可行动行情且现价低于止损价
+- **THEN** 状态变化和告警在同一事务中提交一次
 
 #### Scenario: 现价恰好等于止损价
-- **WHEN** 新鲜现价按配置精度等于止损价
-- **THEN** 持仓状态变为 `triggered`
+- **WHEN** 可行动现价等于止损价
+- **THEN** 系统提交一次触发和一次告警
 
-#### Scenario: 价格高于止损线
-- **WHEN** 新鲜现价为 `10.50`，止损价为 `9.00`
-- **THEN** 持仓保持 `holding`，且不创建告警
+#### Scenario: 不可行动行情低于止损价
+- **WHEN** `unpriced`、`stale`、`error` 或策略禁止的 `close` 行情数值低于止损价
+- **THEN** 系统不得改变持仓状态或创建告警
 
-#### Scenario: 失败或过期行情低于止损价
-- **WHEN** 失败或过期行情的数值低于止损价
-- **THEN** 持仓不变化，也不创建告警
+#### Scenario: 重复判断同一触发序列
+- **WHEN** 同一规则和触发序列被重复判断
+- **THEN** 系统最多保留一个已提交告警并返回数据库事实
 
-#### Scenario: 重复判断同一触发
-- **WHEN** 已为 `triggered` 的同一生命周期再次执行判断
-- **THEN** 不创建重复告警
+#### Scenario: One concurrent transaction loses the race
+- **WHEN** 两个周期并发尝试触发同一持仓且一个版本条件失败
+- **THEN** 失败周期重新读取已提交状态，不报告未提交触发且不回滚其他标的
 
 ### Requirement: Confirm stop-loss closure
 系统 SHALL 要求用户显式操作，才能把 `triggered` 持仓改为 `closed`，并把实际平仓价与触发价分开记录。
@@ -95,3 +93,22 @@ The system SHALL update highest_price whenever current_price exceeds the existin
 #### Scenario: Price below highest
 - **WHEN** holding has highest_price=15.00, current_price=14.00
 - **THEN** highest_price remains 15.00
+
+### Requirement: Rearm a triggered position explicitly
+系统 SHALL 只允许对开放且风险状态为 `triggered` 或 `acknowledged` 的仓位提交新止损规则、非空人工原因和预期版本来重新布防，并创建新触发序列。
+
+#### Scenario: Rearm with valid new rule
+- **WHEN** 用户提交有效新规则、原因和当前版本
+- **THEN** 系统原子停用旧规则、启用新规则、将风险状态设为 `normal` 并追加不可变事件
+
+#### Scenario: New rule is already breached
+- **WHEN** 当前可行动行情已低于新止损价
+- **THEN** 系统拒绝静默恢复并返回需要明确确认的稳定风险错误
+
+### Requirement: Acknowledge risk separately from alert reading
+系统 SHALL 将风险确认记录为仓位风险状态和不可变事件，且不得改变告警阅读状态或删除原触发事实。
+
+#### Scenario: Acknowledge triggered risk
+- **WHEN** 用户确认已知悉触发风险
+- **THEN** 风险状态变为 `acknowledged`，告警阅读状态保持原值
+

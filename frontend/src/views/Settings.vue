@@ -1,19 +1,23 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { requestPriceRefresh } from '../api'
+import api, { requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
 import { useSettingsStore } from '../stores/settings'
+import { useMonitoringStore } from '../stores/monitoring'
 import { summarizeRefresh } from '../utils/refreshResult'
 import { detectSettingsPreset, SETTINGS_PRESETS, settingsForPreset } from '../utils/settingsPresets'
 import { useRequestState } from '../utils/requestState'
 
 const settingsStore = useSettingsStore()
+const monitoringStore = useMonitoringStore()
 const pollInterval = ref(30)
 const monitorInterval = ref(5)
 const saving = ref(false)
 const refreshing = ref(false)
 const advancedOpen = ref(false)
+const notificationState = ref(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
+const importPreview = ref(null)
 const request = useRequestState()
 const selectedPreset = computed(() => detectSettingsPreset(pollInterval.value, monitorInterval.value))
 
@@ -67,7 +71,21 @@ async function refreshPrices() {
   }
 }
 
-onMounted(loadSettings)
+async function requestBrowserNotifications() {
+  if (typeof Notification === 'undefined') { notificationState.value = 'unsupported'; return }
+  notificationState.value = await Notification.requestPermission()
+}
+
+async function previewImport(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  const content = await file.arrayBuffer()
+  importPreview.value = (await api.post('/operations/import/preview', content, { headers: { 'Content-Type': 'application/octet-stream' } })).data
+}
+async function commitImport() { if (importPreview.value?.token) await api.post(`/operations/import/${importPreview.value.token}/commit`) }
+async function createBackup() { await api.post('/operations/backup'); ElMessage.success('Backup created') }
+
+onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(() => {}) })
 </script>
 
 <template>
@@ -106,6 +124,21 @@ onMounted(loadSettings)
       <section class="manual-refresh" aria-labelledby="manual-refresh-title">
         <div><h2 id="manual-refresh-title">手动刷新行情</h2><p>立即拉取所有活动持仓价格并检查止损。通常无需频繁使用。</p></div>
         <el-button plain :loading="refreshing" @click="refreshPrices">立即刷新</el-button>
+      </section>
+      <section class="manual-refresh" aria-label="运行时诊断">
+        <div><h2>运行时诊断</h2><p>页面轮询：{{ pollInterval }} 秒；后端监控：{{ monitorInterval }} 分钟；调度器：{{ monitoringStore.data?.scheduler_running ? '运行中' : '未运行或未知' }}。</p></div>
+        <el-button plain :loading="monitoringStore.loading" @click="monitoringStore.refresh().catch(() => {})">刷新状态</el-button>
+      </section>
+      <section class="manual-refresh" aria-label="Browser notifications">
+        <div><h2>Browser notifications</h2><p v-if="notificationState === 'default'">Permission is requested only when you enable it; in-app alerts remain available.</p><p v-else-if="notificationState === 'granted'">Browser delivery is enabled and remains best-effort.</p><p v-else>Browser notifications are unavailable or denied; use in-app alerts.</p></div>
+        <el-button plain :disabled="notificationState !== 'default'" @click="requestBrowserNotifications">Enable browser notifications</el-button>
+      </section>
+      <section class="manual-refresh" aria-label="Data portability">
+        <div><h2>CSV import and export</h2><input type="file" accept=".csv,text/csv" @change="previewImport" /><p v-if="importPreview">{{ importPreview.valid }} valid rows; review errors before committing.</p></div>
+        <div><el-button plain @click="commitImport" :disabled="!importPreview?.token">Commit import</el-button><a class="el-button el-button--default" href="/api/operations/export.csv">Export CSV</a></div>
+      </section>
+      <section class="manual-refresh" aria-label="Backup">
+        <div><h2>Backup</h2><p>Creates a verified backup in the controlled local directory. Restore remains a stopped-service command.</p></div><el-button plain @click="createBackup">Create backup</el-button>
       </section>
     </div>
   </section>

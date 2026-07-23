@@ -1,10 +1,23 @@
 export function formatNumber(value, digits = 2) {
+  if (value === null || value === undefined || value === '') return '--'
   const number = Number(value)
   return Number.isFinite(number) ? number.toFixed(digits) : '--'
 }
 
+// API monetary fields may be Decimal strings. Formatting intentionally does not
+// perform portfolio arithmetic; it only renders a bounded display value.
+export function formatDecimal(value, digits = 2) {
+  if (value === null || value === undefined || value === '') return '--'
+  const raw = String(value).trim()
+  if (!/^[+-]?\d+(\.\d+)?$/.test(raw)) return '--'
+  const [integer, fraction = ''] = raw.replace(/^\+/, '').split('.')
+  const sign = integer.startsWith('-') ? '-' : ''
+  const whole = integer.replace('-', '').replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return `${sign}${whole}${digits > 0 ? `.${fraction.padEnd(digits, '0').slice(0, digits)}` : ''}`
+}
+
 export function formatMoney(value, digits = 2) {
-  const formatted = formatNumber(value, digits)
+  const formatted = formatDecimal(value, digits)
   return formatted === '--' ? '--' : `¥${formatted}`
 }
 

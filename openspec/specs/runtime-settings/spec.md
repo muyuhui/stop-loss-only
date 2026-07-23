@@ -75,3 +75,28 @@
 - **WHEN** 设置请求失败或服务端拒绝应用
 - **THEN** 页面保留先前生效值，显示可理解的失败信息并允许重新提交
 
+### Requirement: Group settings by operational responsibility
+设置界面 SHALL 将监控、行情与历史、通知占位以及数据与诊断按责任分组，并展示配置值、实际生效值和调度器状态。
+
+#### Scenario: Preset is applied
+- **WHEN** 用户选择及时、均衡或省资源预设
+- **THEN** 页面展示将要改变的实际字段并在保存成功后显示生效状态
+
+#### Scenario: Save fails
+- **WHEN** 后端拒绝或无法应用设置
+- **THEN** 页面保留用户输入、显示可定位错误且不声称已生效
+
+### Requirement: Configure extension settings safely
+系统 SHALL 分组读取和更新历史保留、通知、导入限制和诊断设置，校验跨字段关系并只在持久化和运行时应用都成功后报告成功。
+
+#### Scenario: Invalid retention value
+- **WHEN** 用户提交超出支持范围的保留天数
+- **THEN** 系统返回稳定字段错误且保留原运行时设置
+
+### Requirement: Configure channels without exposing secrets
+系统 SHALL 支持写入、替换、清除和禁用 Webhook 密钥，但读取设置 MUST NOT 返回完整密钥。
+
+#### Scenario: Disable webhook
+- **WHEN** 用户禁用 Webhook
+- **THEN** 后续告警不创建新投递尝试，已有站内告警不变
+

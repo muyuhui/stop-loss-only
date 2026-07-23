@@ -4,6 +4,7 @@ from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from config import config
+from services.quote_contracts import MarketSession
 
 
 MARKET_TZ = ZoneInfo(config.timezone)
@@ -32,3 +33,14 @@ def local_now(now: datetime | None = None) -> datetime:
 def is_in_trading_session(now: datetime | None = None) -> bool:
     current = local_now(now).time().replace(tzinfo=None)
     return any(start <= current <= end for start, end in SESSIONS)
+
+
+def market_session(now: datetime | None = None) -> MarketSession:
+    current = local_now(now).time().replace(tzinfo=None)
+    if current < SESSIONS[0][0]:
+        return MarketSession.PRE_MARKET
+    if SESSIONS[0][0] <= current <= SESSIONS[0][1] or SESSIONS[1][0] <= current <= SESSIONS[1][1]:
+        return MarketSession.OPEN
+    if SESSIONS[0][1] < current < SESSIONS[1][0]:
+        return MarketSession.LUNCH
+    return MarketSession.CLOSED

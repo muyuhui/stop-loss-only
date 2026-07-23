@@ -1,0 +1,29 @@
+{
+  "holding": {
+    "id": 101,
+    "code": "000001",
+    "name": "示例股票",
+    "type": "stock",
+    "buy_price": 10.0,
+    "quantity": 100,
+    "buy_date": "2026-01-02",
+    "current_price": 10.0,
+    "highest_price": 10.0,
+    "stop_loss_method": "fixed",
+    "stop_loss_value": 9.0,
+    "stop_loss_price": 9.0,
+    "profit_loss_pct": 0.0,
+    "stop_loss_distance_pct": 10.0,
+    "status": "holding"
+  },
+  "refresh": {
+    "cycle_id": "fixture-cycle-v2",
+    "status": "ok",
+    "market_open": true,
+    "calendar_degraded": false,
+    "requested": 1,
+    "processed": 1,
+    "triggered": [],
+    "items": []
+  }
+}

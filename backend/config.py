@@ -21,6 +21,13 @@ class AppConfig:
     readiness_timeout_seconds: int = int(os.getenv("STOP_LOSS_READINESS_TIMEOUT", "20"))
     shutdown_timeout_seconds: int = int(os.getenv("STOP_LOSS_SHUTDOWN_TIMEOUT", "30"))
     fixture_price: str | None = os.getenv("STOP_LOSS_FIXTURE_PRICE")
+    temp_dir: Path = Path(os.getenv("STOP_LOSS_TEMP_DIR", str(BASE_DIR.parent / ".tmp")))
+    provider_connect_timeout_seconds: float = float(os.getenv("STOP_LOSS_PROVIDER_CONNECT_TIMEOUT", "3"))
+    provider_total_timeout_seconds: float = float(os.getenv("STOP_LOSS_PROVIDER_TOTAL_TIMEOUT", "8"))
+    provider_max_attempts: int = int(os.getenv("STOP_LOSS_PROVIDER_MAX_ATTEMPTS", "2"))
+    provider_circuit_cooldown_seconds: int = int(os.getenv("STOP_LOSS_PROVIDER_CIRCUIT_COOLDOWN", "60"))
+    calendar_cache_seconds: int = int(os.getenv("STOP_LOSS_CALENDAR_CACHE_SECONDS", "86400"))
+    refresh_lock_timeout_seconds: float = float(os.getenv("STOP_LOSS_REFRESH_LOCK_TIMEOUT", "2"))
 
 
 config = AppConfig()

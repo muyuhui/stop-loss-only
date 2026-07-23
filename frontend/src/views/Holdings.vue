@@ -1,142 +1,81 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '../api'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import DataState from '../components/DataState.vue'
-import HoldingForm from '../components/HoldingForm.vue'
-import { formatAssetMoney, formatMoney, formatSignedPercent, stopLossRisk, valueTone } from '../utils/format'
-import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
-import { useRequestState } from '../utils/requestState'
+import FilterToolbar from '../components/FilterToolbar.vue'
+import StatusBanner from '../components/StatusBanner.vue'
+import { usePositionsStore } from '../stores/positions'
+import { formatDecimal, formatMoney } from '../utils/format'
+import api from '../api'
 
-const holdings = ref([])
-const total = ref(0)
-const page = ref(1)
-const size = ref(20)
-const dialogVisible = ref(false)
-const request = useRequestState()
-const router = useRouter()
-
-async function load() {
-  request.begin()
-  try {
-    const res = await api.get('/holdings', { params: { page: page.value, size: size.value } })
-    holdings.value = res.data.items || []
-    total.value = res.data.total || 0
-    request.succeed()
-  } catch {
-    request.fail('持仓列表加载失败，请检查服务后重试。')
+const route = useRoute(); const router = useRouter(); const store = usePositionsStore()
+const query = reactive({ search: '', lifecycle: '', risk: '', sort: 'risk', page: 1 })
+const createOpen = ref(false); const creating = ref(false); const createError = ref('')
+const createForm = reactive({ code: '', name: '', asset_type: 'stock', quantity: '', unit_cost: '', fees: '0', taxes: '0' })
+function readQuery() { Object.assign(query, { search: route.query.search || '', lifecycle: route.query.lifecycle || '', risk: route.query.risk || '', sort: route.query.sort || 'risk', page: Number(route.query.page || 1) }) }
+function syncQuery(next = query) { Object.assign(query, next); router.replace({ query: Object.fromEntries(Object.entries(query).filter(([, value]) => value !== '' && value !== 1)) }) }
+const filtered = computed(() => {
+  const needle = query.search.trim().toLowerCase()
+  const rows = (store.data?.items || []).filter(row => (!needle || `${row.name} ${row.code}`.toLowerCase().includes(needle)) && (!query.lifecycle || row.lifecycle_status === query.lifecycle) && (!query.risk || row.risk_status === query.risk))
+  return rows.sort((a, b) => query.sort === 'name' ? a.name.localeCompare(b.name) : query.sort === 'newest' ? b.id - a.id : Number(b.risk_status === 'triggered') - Number(a.risk_status === 'triggered') || b.id - a.id)
+})
+function reset() { syncQuery({ search: '', lifecycle: '', risk: '', sort: 'risk', page: 1 }) }
+function detail(row) { router.push({ path: `/positions/${row.id}`, query: route.query }) }
+async function createPosition() {
+  createError.value = ''
+  if (!createForm.code || !createForm.name || !createForm.quantity || !createForm.unit_cost) {
+    createError.value = '请填写代码、名称、数量和单位成本。'
+    return
   }
+  creating.value = true
+  try {
+    const { data } = await api.post('/positions', createForm)
+    createOpen.value = false
+    await store.refresh()
+    detail(data)
+  } catch (error) {
+    createError.value = error.response?.data?.detail?.error_code === 'new_authority_required'
+      ? '当前仍处于兼容模式，暂不能创建新仓位。'
+      : '新建仓位失败，请检查输入后重试。'
+  } finally { creating.value = false }
 }
-
-function onCreated() {
-  dialogVisible.value = false
-  page.value = 1
-  load()
-}
-
-function methodLabel(method) {
-  return { fixed: '固定价', percentage: '百分比', trailing: '追踪' }[method] || method
-}
-
-onMounted(load)
+onMounted(() => { readQuery(); store.refresh().catch(() => {}) })
+watch(() => route.query, readQuery)
 </script>
 
 <template>
-  <section aria-labelledby="holdings-title">
-    <div class="page-heading">
-      <div>
-        <h1 id="holdings-title" class="page-title">持仓管理</h1>
-        <p class="page-subtitle">查看价格与止损距离，快速进入单笔持仓</p>
-      </div>
-      <el-button type="primary" @click="dialogVisible = true">新增持仓</el-button>
-    </div>
-
-    <div v-if="request.error.value && request.hasData.value" class="status-strip is-warning">
-      <span>{{ request.error.value }}</span>
-      <el-button size="small" link @click="load">重试</el-button>
-    </div>
-
-    <section class="panel holdings-panel" aria-label="持仓列表">
-      <DataState v-if="request.initialLoading.value" kind="loading" title="正在加载持仓" />
-      <DataState v-else-if="request.error.value && !request.hasData.value" kind="error" title="暂时无法加载持仓" :description="request.error.value" action-label="重新加载" @action="load" />
-      <DataState v-else-if="!holdings.length" title="还没有持仓" description="添加第一笔持仓后即可开始监控价格和止损风险。" action-label="新增持仓" @action="dialogVisible = true" />
-
-      <div v-else class="desktop-only holdings-table">
-        <el-table :data="holdings" @row-click="row => router.push(`/holdings/${row.id}`)">
-          <el-table-column label="持仓" min-width="190">
-            <template #default="{ row }"><div class="identity"><strong>{{ row.name }}</strong><span>{{ row.code }} · {{ row.type === 'stock' ? '股票' : '基金' }}</span></div></template>
-          </el-table-column>
-          <el-table-column label="持有" min-width="150">
-            <template #default="{ row }"><div class="cell-stack number"><strong>{{ row.quantity }} 份</strong><span>成本 {{ formatAssetMoney(row.buy_price, row.type) }}</span></div></template>
-          </el-table-column>
-          <el-table-column label="当前表现" min-width="160">
-            <template #default="{ row }"><div class="cell-stack number"><strong>{{ formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</span></div></template>
-          </el-table-column>
-          <el-table-column label="止损风险" min-width="195">
-            <template #default="{ row }"><div class="cell-stack number"><strong>{{ formatAssetMoney(row.stop_loss_price, row.type) }} · {{ methodLabel(row.stop_loss_method) }}</strong><span :class="`risk-${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ stopLossRisk(row.stop_loss_distance_pct, row.status).label }} {{ formatSignedPercent(row.stop_loss_distance_pct) }}</span></div></template>
-          </el-table-column>
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }"><el-tag :type="holdingStatusTag(row.status)">{{ holdingStatusLabel(row.status) }}</el-tag></template>
-          </el-table-column>
-          <el-table-column label="操作" width="90">
-            <template #default="{ row }"><el-button type="primary" link @click.stop="router.push(`/holdings/${row.id}`)">详情</el-button></template>
-          </el-table-column>
-        </el-table>
-      </div>
-
-      <div v-if="holdings.length" class="mobile-only mobile-list">
-        <button v-for="row in holdings" :key="row.id" type="button" class="position-card" @click="router.push(`/holdings/${row.id}`)">
-          <span class="position-card__header">
-            <span><strong>{{ row.name }}</strong><small>{{ row.code }} · {{ methodLabel(row.stop_loss_method) }}</small></span>
-            <el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag>
-          </span>
-          <span class="position-card__metrics">
-            <span><small>当前价</small><strong class="number">{{ formatAssetMoney(row.current_price, row.type) }}</strong></span>
-            <span><small>盈亏</small><strong class="number" :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</strong></span>
-            <span><small>止损价</small><strong class="number">{{ formatAssetMoney(row.stop_loss_price, row.type) }}</strong></span>
-            <span><small>距止损</small><strong class="number" :class="`risk-${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ formatSignedPercent(row.stop_loss_distance_pct) }}</strong></span>
-          </span>
-          <span class="position-card__footer"><span :class="`risk-${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ stopLossRisk(row.stop_loss_distance_pct, row.status).label }}</span><span>查看详情 →</span></span>
+  <section aria-labelledby="positions-title">
+    <div class="page-heading"><div><h1 id="positions-title" class="page-title">持仓与风险</h1><p class="page-subtitle">筛选、排序和页面上下文会保留在地址栏中。</p></div><div class="heading-actions"><el-button type="primary" @click="createOpen = true">新建仓位</el-button><el-button :loading="store.loading" @click="store.refresh().catch(() => {})">刷新</el-button></div></div>
+    <FilterToolbar :query="query" :total="filtered.length" @update:query="syncQuery" @reset="reset" />
+    <StatusBanner v-if="store.error && store.data" kind="warning" title="刷新失败，正在显示上一次成功数据" detail="可手动重试，数据不会被清空。" />
+    <section class="panel positions-panel" aria-label="持仓列表">
+      <DataState v-if="store.loading && !store.data" kind="loading" title="正在加载持仓" />
+      <DataState v-else-if="store.error && !store.data" kind="error" title="无法加载持仓" description="请检查本地服务后重试。" action-label="重试" @action="store.refresh().catch(() => {})" />
+      <DataState v-else-if="!filtered.length" title="没有匹配的持仓" description="可调整筛选条件，或稍后再试。" action-label="重置筛选" @action="reset" />
+      <div v-else class="position-list">
+        <button v-for="row in filtered" :key="row.id" type="button" class="position-row" @click="detail(row)">
+          <span><strong>{{ row.name }}</strong><small>{{ row.code }} · {{ row.asset_type }}</small></span>
+          <span><small>剩余数量</small><strong class="number">{{ formatDecimal(row.remaining_quantity, row.asset_type === 'fund' ? 6 : 0) }}</strong></span>
+          <span><small>当前行情</small><strong class="number">{{ formatMoney(row.current_price) }}</strong><em>{{ row.quote_state }}</em></span>
+          <span><small>风险状态</small><strong :class="`risk-${row.risk_status}`">{{ row.risk_status }}</strong><em>{{ row.lifecycle_status }}</em></span>
         </button>
       </div>
     </section>
-
-    <el-pagination
-      v-if="total > size"
-      v-model:current-page="page"
-      v-model:page-size="size"
-      :total="total"
-      layout="prev, pager, next, total"
-      class="holdings-pagination"
-      @current-change="load"
-    />
-
-    <el-dialog v-model="dialogVisible" title="新增持仓" width="560px" destroy-on-close>
-      <HoldingForm @success="onCreated" @cancel="dialogVisible = false" />
+    <el-dialog v-model="createOpen" title="新建仓位" width="min(560px, 94vw)" :close-on-click-modal="false">
+      <form class="create-form" @submit.prevent="createPosition">
+        <el-input v-model="createForm.code" aria-label="证券代码" placeholder="证券代码" />
+        <el-input v-model="createForm.name" aria-label="证券名称" placeholder="证券名称" />
+        <el-select v-model="createForm.asset_type" aria-label="资产类型"><el-option label="股票" value="stock" /><el-option label="基金" value="fund" /></el-select>
+        <el-input v-model="createForm.quantity" aria-label="初始数量" placeholder="初始数量" /><el-input v-model="createForm.unit_cost" aria-label="单位成本" placeholder="单位成本" />
+        <StatusBanner v-if="createError" kind="warning" title="无法创建仓位" :detail="createError" />
+        <div class="dialog-actions"><el-button @click="createOpen = false">取消</el-button><el-button native-type="submit" type="primary" :loading="creating">创建并查看</el-button></div>
+      </form>
     </el-dialog>
   </section>
 </template>
 
 <style scoped>
-.holdings-panel { overflow: hidden; }
-.holdings-table { padding: 8px 18px 16px; }
-.identity, .cell-stack { display: grid; gap: 4px; }
-.identity span, .cell-stack span { color: var(--color-text-muted); font-size: 12px; }
-.cell-stack .tone-profit { color: var(--color-profit); }
-.cell-stack .tone-loss { color: var(--color-loss); }
-.risk-danger { color: var(--color-danger) !important; }
-.risk-warning { color: var(--color-warning) !important; }
-.risk-safe { color: var(--color-success) !important; }
-.holdings-pagination { margin-top: 16px; justify-content: flex-end; }
-.mobile-list { padding: 12px; }
-.position-card { width: 100%; padding: 15px; display: grid; gap: 14px; color: var(--color-text); text-align: left; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
-.position-card + .position-card { margin-top: 10px; }
-.position-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.position-card__header > span { display: grid; gap: 4px; }
-.position-card__header small, .position-card__metrics small { color: var(--color-text-muted); font-size: 11px; }
-.position-card__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-.position-card__metrics > span { display: grid; gap: 4px; }
-.position-card__footer { padding-top: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--color-text-soft); border-top: 1px solid var(--color-border); font-size: 12px; font-weight: 650; }
-@media (max-width: 900px) { .holdings-table { display: none !important; } .mobile-list { display: block; } }
-@media (max-width: 767px) { .holdings-pagination { justify-content: center; } }
+.positions-panel { margin-top: 14px; overflow: hidden; }.position-list { display: grid; }.position-row { display: grid; grid-template-columns: 2fr 1fr 1.2fr 1fr; align-items: center; gap: 16px; padding: 15px 18px; color: var(--color-text); text-align: left; background: var(--color-surface); border: 0; border-bottom: 1px solid var(--color-border); }.position-row:hover { background: var(--color-bg-soft); }.position-row > span { display: grid; gap: 3px; }.position-row small, em { color: var(--color-text-muted); font-size: 12px; font-style: normal; }.risk-triggered { color: var(--color-danger); }.risk-acknowledged { color: var(--color-warning); }.risk-normal { color: var(--color-success); }
+.heading-actions, .dialog-actions { display: flex; gap: 8px; align-items: center; }.create-form { display: grid; gap: 12px; }.dialog-actions { justify-content: flex-end; margin-top: 4px; }
+@media (max-width: 767px) { .position-row { grid-template-columns: 1fr 1fr; gap: 12px; }.position-row > :first-child { grid-column: 1 / -1; } }
 </style>

@@ -91,15 +91,20 @@ def test_legacy_migration_backup_and_restore(tmp_path: Path):
         conn.execute(text("INSERT INTO holdings VALUES (1,'000001','测试','stock',10,100,'2026-01-01',8.8,10,'fixed',9,9,'stopped_out',8.8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
         conn.execute(text("INSERT INTO alerts VALUES (1,1,9,8.8,0,CURRENT_TIMESTAMP)"))
     upgrade(engine, url, tmp_path / "backups")
-    assert current_version(engine) == 3
+    assert current_version(engine) == 7
     with engine.connect() as conn:
         assert conn.execute(text("SELECT status FROM holdings WHERE id=1")).scalar_one() == "closed"
         assert conn.execute(text("SELECT holding_name FROM alerts WHERE id=1")).scalar_one() == "测试"
-        assert "price_history" in {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        assert {"price_history", "monitoring_cycles"}.issubset(tables)
+        holding_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(holdings)"))}
+        assert {"quote_state", "fresh_until", "is_actionable", "last_cycle_id", "version"}.issubset(holding_columns)
+        indexes = {row[1] for row in conn.execute(text("PRAGMA index_list(monitoring_cycles)"))}
+        assert "ix_monitoring_cycles_started_status" in indexes
     downgrade(engine)
-    assert current_version(engine) == 0
+    assert current_version(engine) == 6
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT status FROM holdings WHERE id=1")).scalar_one() == "stopped_out"
+        assert conn.execute(text("SELECT status FROM holdings WHERE id=1")).scalar_one() == "closed"
     upgrade(engine, url, tmp_path / "backups")
     backup, manifest = backup_database(url, tmp_path / "manual")
     restored = tmp_path / "restored.db"

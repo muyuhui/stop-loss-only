@@ -78,3 +78,32 @@ The frontend SHALL poll for unread alerts at a configurable interval and display
 - **WHEN** 页面存在未读告警且用户激活全部已读
 - **THEN** 操作期间阻止重复提交，成功后同步更新列表和全局未读数量
 
+### Requirement: Track alert disposition separately from read state
+告警 SHALL 分别记录阅读状态和处置状态，并关联触发事件、规则快照、仓位快照及后续确认、重新布防或平仓事件。
+
+#### Scenario: Alert is read without disposition
+- **WHEN** 用户只标记告警已读
+- **THEN** 阅读状态改变，但处置状态和仓位风险状态不变
+
+#### Scenario: Position is rearmed
+- **WHEN** 用户成功重新布防
+- **THEN** 原告警处置状态关联为 `rearmed`，原快照保持不可变
+
+### Requirement: Provide paginated actionable alert views
+告警页面 SHALL 支持阅读状态、处置状态、日期、标的和类型筛选、稳定分页与 URL 上下文，并默认按未处理优先和时间倒序排列。
+
+#### Scenario: More than one page of alerts
+- **WHEN** 匹配告警超过一页
+- **THEN** 用户可以访问后续页且筛选、总数和排序保持稳定
+
+#### Scenario: No unresolved alerts
+- **WHEN** “待处理”筛选没有匹配记录但历史告警存在
+- **THEN** 页面显示筛选空状态而不是“从无告警”状态
+
+### Requirement: Separate reading and disposition actions in UI
+告警界面 SHALL 把标记已读、确认风险、重新布防和平仓显示为不同操作，并链接到对应仓位事件。
+
+#### Scenario: Mark all read
+- **WHEN** 用户执行全部已读
+- **THEN** 页面只更新阅读计数，不把待处理告警标记为已处置
+

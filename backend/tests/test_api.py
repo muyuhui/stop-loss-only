@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -9,8 +9,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
-from models import Alert, Holding
-from routers import alerts, dashboard, holdings, prices, settings
+from models import Alert, Holding, MonitoringCycle
+from routers import alerts, dashboard, holdings, monitoring, prices, settings
 
 
 @pytest.fixture()
@@ -19,7 +19,7 @@ def api():
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False)
     app = FastAPI()
-    for router in (holdings.router, prices.router, alerts.router, dashboard.router, settings.router):
+    for router in (holdings.router, prices.router, alerts.router, dashboard.router, settings.router, monitoring.router):
         app.include_router(router, prefix="/api")
 
     def override_db():
@@ -47,6 +47,8 @@ def test_holding_contract_consistency_pagination_and_validation(api):
     created = client.post("/api/holdings", json=holding_body())
     assert created.status_code == 201
     item = created.json()
+    assert item["current_price"] is None
+    assert item["quote_state"] == "unpriced" and item["is_actionable"] is False
     assert item["stop_loss_price"] == 9
     assert item["created_at"].endswith(("Z", "+00:00"))
     assert item["updated_at"].endswith(("Z", "+00:00"))
@@ -97,6 +99,7 @@ def test_lifecycle_close_and_alert_snapshot(api):
     assert client.delete(f"/api/holdings/{item['id']}").status_code == 400
     closed = client.post(f"/api/holdings/{item['id']}/close", json={"close_price": 8.7})
     assert closed.json()["status"] == "closed"
+    assert closed.json()["close_price"] == 8.7 and closed.json()["current_price"] is None
     assert client.delete(f"/api/holdings/{item['id']}").status_code == 204
     alerts_page = client.get("/api/alerts").json()
     assert alerts_page["items"][0]["quoted_at"].endswith("+08:00")
@@ -129,10 +132,13 @@ def test_runtime_settings_defaults_validation_and_persistence(api, monkeypatch):
     client, _, _ = api
     calls = []
     monkeypatch.setattr("scheduler.update_interval", lambda value: calls.append(value))
-    assert client.get("/api/settings").json() == {"poll_interval": 30, "monitor_interval": 5}
+    defaults = client.get("/api/settings").json()
+    assert defaults["poll_interval"] == 30 and defaults["monitor_interval"] == 5
+    assert defaults["webhook_enabled"] is False and defaults["webhook_secret_configured"] is False
+    assert defaults["quote_retention_days"] == 90 and defaults["import_max_rows"] == 1000
     assert client.put("/api/settings", json={"poll_interval": 4}).status_code == 422
     response = client.put("/api/settings", json={"poll_interval": 45, "monitor_interval": 10})
-    assert response.json() == {"poll_interval": 45, "monitor_interval": 10}
+    assert response.json()["poll_interval"] == 45 and response.json()["monitor_interval"] == 10
     assert calls == [10]
     assert client.get("/api/settings").json()["poll_interval"] == 45
 
@@ -180,4 +186,34 @@ def test_openapi_contract_contains_models_and_statuses(api):
     assert "HoldingPage" in schema["components"]["schemas"]
     assert "DashboardResponse" in schema["components"]["schemas"]
     assert "RefreshCycleResponse" in schema["components"]["schemas"]
+    assert "MonitoringStatusResponse" in schema["components"]["schemas"]
+    assert "/api/monitoring/status" in schema["paths"]
     assert "204" in schema["paths"]["/api/holdings/{holding_id}"]["delete"]["responses"]
+
+
+def test_monitoring_status_and_paginated_cycles_are_actionable(api):
+    client, factory, _ = api
+    item = client.post("/api/holdings", json=holding_body()).json()
+    db = factory()
+    holding = db.get(Holding, item["id"])
+    holding.quote_state = "live"
+    holding.is_actionable = True
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.add(MonitoringCycle(
+        id="diagnostic-cycle", kind="manual", scope="all", status="partial",
+        started_at=now - timedelta(seconds=2), finished_at=now,
+        requested_count=2, success_count=1, failed_count=1, skipped_count=0,
+        triggered_count=0, coverage_pct=50, calendar_source="authoritative",
+        error_code="instrument_failed",
+    ))
+    db.commit()
+    db.close()
+    status_response = client.get("/api/monitoring/status")
+    assert status_response.status_code == 200
+    status_data = status_response.json()
+    assert status_data["latest_cycle"]["id"] == "diagnostic-cycle"
+    assert status_data["quote_coverage_pct"] == 100
+    assert status_data["overdue"] is True and status_data["reason_code"] == "no_successful_cycle"
+    page = client.get("/api/monitoring/cycles?page=1&size=1&status=partial").json()
+    assert page["total"] == 1 and page["items"][0]["error_code"] == "instrument_failed"
+    assert client.get("/api/monitoring/cycles?status=unknown").status_code == 422

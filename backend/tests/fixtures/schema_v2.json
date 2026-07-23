@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "holdings": [
+    {
+      "id": 101,
+      "code": "000001",
+      "name": "示例股票",
+      "type": "stock",
+      "buy_price": "10.0000",
+      "quantity": 100,
+      "buy_date": "2026-01-02",
+      "current_price": "10.0000",
+      "highest_price": "10.0000",
+      "stop_loss_method": "fixed",
+      "stop_loss_value": "9.0000",
+      "stop_loss_price": "9.0000",
+      "status": "holding"
+    },
+    {
+      "id": 102,
+      "code": "000002",
+      "name": "已关闭示例",
+      "type": "stock",
+      "buy_price": "20.0000",
+      "quantity": 50,
+      "buy_date": "2026-02-03",
+      "current_price": "18.0000",
+      "highest_price": "21.0000",
+      "stop_loss_method": "percentage",
+      "stop_loss_value": "10.0000",
+      "stop_loss_price": "18.0000",
+      "status": "closed",
+      "close_price": "18.5000"
+    }
+  ]
+}

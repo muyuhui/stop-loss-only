@@ -63,3 +63,31 @@ TBD - created by archiving change refine-frontend-experience. Update Purpose aft
 - **WHEN** 页面展示盈利、亏损、未读告警或临近止损状态
 - **THEN** 状态同时包含文字、符号或图标提示，不仅通过颜色区分
 
+### Requirement: Use distinct risk and trust semantics
+前端 SHALL 分别表达监控健康、行情可行动性、业务风险和财务盈亏，所有状态 MUST 同时使用文本、图标、符号或结构而不是只依赖颜色。
+
+#### Scenario: Profit and danger are both red
+- **WHEN** 页面同时显示正收益和已触发危险状态
+- **THEN** 正收益带正号且危险带标签/图标，用户无需仅凭红色区分
+
+### Requirement: Format financial values consistently
+前端 SHALL 使用共享格式化组件显示后端 Decimal 字符串、千分位、带符号百分比、资产数量精度和不可用值，MUST NOT 在浏览器执行财务核算。
+
+#### Scenario: Decimal value is unavailable
+- **WHEN** API 返回未覆盖或不可行动值
+- **THEN** 页面显示明确不可用语义，不显示零或 NaN
+
+### Requirement: Preserve responsive accessibility
+前端 SHALL 支持最低 360px 宽度、44px 移动触控目标、键盘操作、焦点管理、减少动画偏好和不会遮挡内容的安全区。
+
+#### Scenario: Full-screen mobile form
+- **WHEN** 用户在移动端编辑重新布防或平仓表单
+- **THEN** 表单接近全屏、焦点可见且提交操作不被底部导航遮挡
+
+### Requirement: Request privileged capabilities on demand
+前端 SHALL 只在明确用户操作后请求系统通知、创建备份或选择导入文件，并显示已授权、已拒绝、不支持和失败状态。
+
+#### Scenario: Page loads with notifications unset
+- **WHEN** 用户首次打开设置且通知权限未决定
+- **THEN** 页面不得自动请求权限，只显示解释和启用按钮
+

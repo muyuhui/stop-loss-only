@@ -61,6 +61,8 @@
 
 ## 数据库迁移与恢复
 
+项目使用内置的有序 `schema_migrations` runner，而非 Alembic：每个整数 revision 幂等执行、记录最高已应用版本，并在升级前为旧库创建备份。该 runner 是本地 SQLite 单进程部署的 revision authority；迁移逻辑必须保持可重入并由自动化升级/降级测试覆盖。
+
 ```powershell
 cd backend
 python db_admin.py status
@@ -93,3 +95,58 @@ cd ..
 - 历史图表无数据或加载失败时，可在图表区域单独重试，不影响修改止损、刷新当前价格和平仓操作。
 - 调度器未运行：确认使用正常启动模式，检查 readiness 的 `scheduler_running` 和已保存监控间隔。
 - 建议定期备份；默认备份目录为 `backend/backups/`，日志与备份保留周期由使用者按磁盘情况管理。
+
+## 行情可信度与监控诊断
+
+- 新持仓初始状态为 `unpriced`，买入成本不会再伪装成当前行情。行情状态由后端统一裁决为 `unpriced`、`live`、`delayed`、`close`、`nav`、`stale` 或 `error`。
+- 只有响应中 `is_actionable=true` 的新鲜行情才能触发止损；休市收盘价、过期价、失败结果以及无法由权威日历或提供方时间证明的工作日降级行情均不可触发。
+- `GET /api/monitoring/status` 提供调度状态、下一次运行、最近周期、最近成功、行情覆盖率和稳定原因码；`GET /api/monitoring/cycles` 支持 `page`、`size`、`status` 和 `kind` 筛选。
+- `POST /api/prices/refresh` 保持兼容，并可通过 `holding_id` 或 `code` 查询参数限定范围；`POST /api/prices/{code}/refresh` 提供标的级快捷入口。
+- 监控周期只记录状态、时间、覆盖率、聚合计数和稳定错误码，不保存价格、数量、成本或提供方原始响应。
+- 当前只支持单进程、单 worker、单调度器运行。调度刷新与手动刷新由进程内有界互斥锁协调；不要将该锁视为多进程协调机制。
+
+## Position domain migration
+
+The position domain has three explicit authority stages: `legacy`, `shadow-read`, and
+`new-authoritative`. During the compatibility window, legacy holdings remain the only
+writer; enable shadow reads with `python backend/db_admin.py shadow-enable`, and use
+`shadow-rebuild` after an interruption. Cutover is an offline operation: stop the app,
+run `python backend/db_admin.py cutover`, and retain the generated verified backup.
+
+After cutover, the new position model is authoritative and legacy holdings endpoints are
+read-only compatibility DTOs for one stable release. Removing those routes requires a
+separate OpenSpec change. The irreversible boundary is the cutover; rollback is performed
+by stopping the app and running `python backend/db_admin.py restore <backup> <manifest>`.
+FIFO is the only supported cost-basis method, and the application remains a single-process,
+single-worker local deployment.
+
+## Local platform extensions
+
+- In-app alerts are authoritative. Browser notifications and signed webhooks are optional,
+  best-effort channels and may be disabled independently.
+- Browser permission is requested only after selecting the enable action. A denied or
+  unsupported permission does not hide any in-app alerts.
+- CSV import accepts only the standard v1 schema. Preview has no writes; commit uses the
+  short-lived preview token. CSV export escapes formula prefixes and preserves Decimals.
+- Backups are created in the controlled local directory. Stop the service before recovery:
+  `python backend/db_admin.py restore <backup> <manifest>`. Diagnostics omit databases,
+  secrets, prices, quantities, costs, and provider response bodies.
+
+## Risk workflow guide
+
+- Treat a quote as actionable only when the interface marks it as such; delayed,
+  stale, unpriced, and error states are informational and cannot trigger a stop.
+- Reading an alert only clears its unread badge. A triggered position requires a
+  separate acknowledgement, rearm, or close disposition in its position detail.
+- Partial closes preserve FIFO lot allocation and leave an open position in risk
+  monitoring until the remaining quantity reaches zero. Closed positions are
+  review-only and show their recorded events and realized results.
+- The Positions and Alerts filters are stored in the URL, so the selected view is
+  retained when moving between a list and a detail page.
+
+### v4 回滚
+
+1. 先运行 `./stop.ps1`，再使用 `./backup.ps1` 创建可恢复备份。
+2. 在 `backend` 目录运行 `python db_admin.py downgrade`，将迁移版本从 4 回退为 3。
+3. 回退应用代码并重新启动。v4 新增列、索引和 `monitoring_cycles` 表会保留，旧代码会忽略它们，避免破坏诊断历史。
+4. 若需恢复数据，保持后端停止并使用 `./restore.ps1 -Backup <backup.db> -Manifest <backup.json>`。

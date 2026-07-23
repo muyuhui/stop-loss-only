@@ -9,6 +9,7 @@ import { formatAssetMoney, formatMoney, formatSignedPercent, formatTime, stopLos
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 import { createPoller } from '../utils/poller'
 import { useRequestState } from '../utils/requestState'
+import { monitoringTrust, quoteTrust } from '../utils/quoteTrust'
 
 const emptyDashboard = {
   active_cost: 0, active_market_value: 0, unrealized_profit_loss: 0,
@@ -18,6 +19,7 @@ const emptyDashboard = {
 }
 
 const dashboard = ref(emptyDashboard)
+const monitoring = ref(null)
 const settingsStore = useSettingsStore()
 const request = useRequestState()
 const router = useRouter()
@@ -26,12 +28,17 @@ const poller = createPoller(load)
 const risk = computed(() => dashboardRiskSummary(dashboard.value))
 const sortedHoldings = computed(() => sortHoldingsByRisk(dashboard.value.holdings))
 const isStale = computed(() => request.isStale(settingsStore.pollInterval))
+const monitoringSummary = computed(() => monitoringTrust(monitoring.value || {}))
 
 async function load() {
   request.begin()
   try {
-    const res = await api.get('/dashboard')
+    const [res, trustResponse] = await Promise.all([
+      api.get('/dashboard'),
+      api.get('/monitoring/status').catch(() => null),
+    ])
     dashboard.value = res.data
+    if (trustResponse) monitoring.value = trustResponse.data
     request.succeed()
   } catch {
     request.fail('仪表盘刷新失败，当前展示的是最后一次成功数据。')
@@ -86,6 +93,17 @@ onUnmounted(() => poller.stop())
       <div v-if="request.error.value || isStale" class="status-strip is-warning" role="status">
         <span>{{ request.error.value || '数据可能已经过期，请手动刷新。' }}</span>
         <el-button size="small" link @click="load">重试</el-button>
+      </div>
+
+      <div class="monitoring-trust" :class="`monitoring-trust--${monitoringSummary.tone}`" role="status">
+        <strong>{{ monitoringSummary.title }}</strong>
+        <span>{{ monitoringSummary.detail }}</span>
+      </div>
+
+      <div class="coverage-summary" aria-label="行情覆盖率">
+        <span>可行动持仓覆盖：<strong>{{ dashboard.actionable_position_coverage_pct ?? '--' }}%</strong></span>
+        <span>估值成本覆盖：<strong>{{ dashboard.valuation_coverage_pct ?? '--' }}%</strong></span>
+        <el-button link @click="router.push('/holdings')">查看风险持仓</el-button>
       </div>
 
       <section class="risk-hero" :class="`risk-hero--${risk.level}`" aria-labelledby="risk-title">
@@ -153,7 +171,7 @@ onUnmounted(() => poller.stop())
             </el-table-column>
             <el-table-column label="当前表现" min-width="155">
               <template #default="{ row }">
-                <div class="cell-stack number"><strong>{{ formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</span></div>
+                <div class="cell-stack number"><strong>{{ formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`quote-tone--${quoteTrust(row).tone}`">{{ quoteTrust(row).text }}</span></div>
               </template>
             </el-table-column>
             <el-table-column label="止损风险" min-width="190">
@@ -174,7 +192,7 @@ onUnmounted(() => poller.stop())
           <button v-for="row in sortedHoldings" :key="row.id" class="holding-card" type="button" @click="router.push(`/holdings/${row.id}`)">
             <span class="holding-card__header"><span><strong>{{ row.name }}</strong><small>{{ row.code }}</small></span><el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag></span>
             <span class="holding-card__grid">
-              <span><small>当前价</small><strong class="number">{{ formatAssetMoney(row.current_price, row.type) }}</strong></span>
+              <span><small>当前价 · {{ quoteTrust(row).label }}</small><strong class="number">{{ formatAssetMoney(row.current_price, row.type) }}</strong></span>
               <span><small>盈亏</small><strong class="number" :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</strong></span>
               <span><small>止损价</small><strong class="number">{{ formatAssetMoney(row.stop_loss_price, row.type) }}</strong></span>
               <span><small>距止损</small><strong class="number" :class="`risk-text--${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ formatSignedPercent(row.stop_loss_distance_pct) }}</strong></span>
@@ -202,6 +220,12 @@ onUnmounted(() => poller.stop())
 .heading-actions { display: flex; align-items: center; gap: 12px; }
 .updated-at { color: var(--color-text-muted); font-size: 12px; }
 .dashboard-stack { display: grid; gap: 16px; }
+.monitoring-trust { padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 9px; font-size: 12px; }
+.monitoring-trust span { color: var(--color-text-soft); }
+.monitoring-trust--success { border-left: 4px solid var(--color-success); }
+.monitoring-trust--warning { border-left: 4px solid var(--color-warning); }
+.monitoring-trust--danger { border-left: 4px solid var(--color-danger); }
+.coverage-summary { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 10px 14px; color: var(--color-text-soft); background: var(--color-bg-soft); border-radius: 8px; font-size: 12px; }.coverage-summary strong { color: var(--color-text); }
 .risk-hero { padding: 24px 26px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: #f7fbf9; background: #29473e; border-radius: 16px; box-shadow: var(--shadow-panel); }
 .risk-hero--warning { background: #6b4b22; }
 .risk-hero--danger { background: #6b3430; }
@@ -226,6 +250,9 @@ onUnmounted(() => poller.stop())
 .risk-text--danger { color: var(--color-danger) !important; }
 .risk-text--warning { color: var(--color-warning) !important; }
 .risk-text--safe { color: var(--color-success) !important; }
+.quote-tone--success { color: var(--color-success) !important; }
+.quote-tone--warning { color: var(--color-warning) !important; }
+.quote-tone--danger { color: var(--color-danger) !important; }
 .mobile-holding-list { padding: 12px; }
 .holding-card { width: 100%; padding: 15px; display: grid; gap: 14px; color: var(--color-text); text-align: left; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
 .holding-card + .holding-card { margin-top: 10px; }
@@ -254,5 +281,7 @@ onUnmounted(() => poller.stop())
   .metric-card--primary { grid-column: 1 / -1; }
   .metric-card__value { font-size: 20px; }
   .today-alert { align-items: flex-start; flex-direction: column; }
+  .monitoring-trust { align-items: flex-start; flex-direction: column; }
+  .coverage-summary { align-items: flex-start; flex-direction: column; }
 }
 </style>

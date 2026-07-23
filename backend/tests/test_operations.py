@@ -4,6 +4,7 @@ from pathlib import Path
 
 from config import AppConfig
 from observability import JsonFormatter
+from models import MonitoringCycle
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,11 +20,21 @@ def test_local_defaults_are_safe():
 def test_structured_log_ignores_sensitive_extra_fields():
     record = logging.LogRecord("monitor", logging.INFO, __file__, 1, "cycle_completed", (), None)
     record.correlation_id = "safe-id"
+    record.cycle_id = "safe-cycle"
     record.price = 123.45
     record.quantity = 1000
+    record.cost = 999
+    record.raw_response = {"secret": "provider payload"}
     payload = json.loads(JsonFormatter().format(record))
     assert payload["correlation_id"] == "safe-id"
-    assert "price" not in payload and "quantity" not in payload
+    assert payload["cycle_id"] == "safe-cycle"
+    assert not {"price", "quantity", "cost", "raw_response"}.intersection(payload)
+
+
+def test_monitoring_diagnostics_schema_contains_only_aggregate_counts():
+    columns = {column.name for column in MonitoringCycle.__table__.columns}
+    assert {"requested_count", "success_count", "failed_count", "coverage_pct"}.issubset(columns)
+    assert not {"price", "current_price", "quantity", "cost", "raw_response"}.intersection(columns)
 
 
 def test_start_script_never_kills_port_owner_and_stop_checks_ownership():

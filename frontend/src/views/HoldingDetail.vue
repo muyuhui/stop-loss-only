@@ -10,6 +10,7 @@ import { priceInputMeta, stopLossInputMeta } from '../utils/holdingForm'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 import { summarizeRefresh } from '../utils/refreshResult'
 import { useRequestState } from '../utils/requestState'
+import { quoteTrust } from '../utils/quoteTrust'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +32,7 @@ const editForm = reactive({ name: '', stop_loss_method: '', stop_loss_value: nul
 const priceMeta = computed(() => priceInputMeta(holding.value.type))
 const editMeta = computed(() => stopLossInputMeta(editForm.stop_loss_method, holding.value.type))
 const holdingRisk = computed(() => stopLossRisk(holding.value.stop_loss_distance_pct, holding.value.status))
+const trust = computed(() => quoteTrust(holding.value))
 
 async function load() {
   request.begin()
@@ -85,7 +87,7 @@ async function refreshPrice() {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    const res = await requestPriceRefresh()
+    const res = await requestPriceRefresh({ holding_id: route.params.id })
     const summary = summarizeRefresh(res.data)
     ElMessage[summary.type](summary.message)
     await load()
@@ -154,7 +156,7 @@ onMounted(load)
       <div v-if="request.error.value" class="status-strip is-warning"><span>{{ request.error.value }}</span><el-button link @click="load">重试</el-button></div>
 
       <section class="detail-summary" aria-label="持仓风险摘要">
-        <article><span>当前价</span><strong class="number">{{ formatAssetMoney(holding.current_price, holding.type) }}</strong><small>买入 {{ formatAssetMoney(holding.buy_price, holding.type) }}</small></article>
+        <article><span>当前价</span><strong class="number">{{ formatAssetMoney(holding.current_price, holding.type) }}</strong><small :class="`quote-tone--${trust.tone}`">{{ trust.text }}</small></article>
         <article><span>未实现盈亏</span><strong class="number" :class="`tone-${valueTone(holding.profit_loss_pct)}`">{{ formatSignedPercent(holding.profit_loss_pct) }}</strong><small>{{ holding.quantity }} 份</small></article>
         <article><span>止损价</span><strong class="number">{{ formatAssetMoney(holding.stop_loss_price, holding.type) }}</strong><small>{{ methodLabel(holding.stop_loss_method) }}</small></article>
         <article :class="`summary-risk--${holdingRisk.level}`"><span>距止损</span><strong class="number">{{ formatSignedPercent(holding.stop_loss_distance_pct) }}</strong><small>{{ holdingRisk.label }}</small></article>
@@ -184,6 +186,7 @@ onMounted(load)
           <div><span>止损参数</span><strong class="number">{{ holding.stop_loss_value }}{{ holding.stop_loss_method === 'fixed' ? ' 元' : '%' }}</strong></div>
           <div><span>行情来源</span><strong>{{ holding.quote_source || '暂无' }}</strong></div>
           <div><span>行情时间</span><strong class="number">{{ formatTime(holding.quoted_at) }}</strong></div>
+          <div><span>行情状态</span><strong :class="`quote-tone--${trust.tone}`">{{ trust.label }}{{ trust.actionable ? ' · 可触发' : ' · 不可触发' }}</strong></div>
         </div>
 
         <el-form v-else :model="editForm" label-position="top" class="edit-form" @submit.prevent="saveEdit">
@@ -224,9 +227,13 @@ onMounted(load)
 .summary-risk--danger { background: var(--color-danger-soft) !important; border-color: #edcbc8 !important; }
 .summary-risk--warning { background: var(--color-warning-soft) !important; border-color: #ecd7b5 !important; }
 .summary-risk--safe strong { color: var(--color-success); }
+.quote-tone--success { color: var(--color-success) !important; }
+.quote-tone--warning { color: var(--color-warning) !important; }
+.quote-tone--danger { color: var(--color-danger) !important; }
+.quote-tone--muted { color: var(--color-text-muted) !important; }
 .panel__header > div:first-child { display: grid; gap: 3px; }
 .panel-actions { display: flex; gap: 8px; }
-.stop-settings-view { padding: 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.stop-settings-view { padding: 20px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
 .stop-settings-view > div { display: grid; gap: 6px; }
 .stop-settings-view strong { font-size: 14px; }
 .edit-form { padding: 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 16px; }

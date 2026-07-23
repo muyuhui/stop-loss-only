@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
+PROJECT_TEMP = ROOT / ".tmp" / "smoke"
 
 
 def free_port() -> int:
@@ -30,7 +31,8 @@ def request(url: str, method="GET", body=None):
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="stop-loss-smoke-") as temp:
+    PROJECT_TEMP.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="stop-loss-smoke-", dir=PROJECT_TEMP) as temp:
         database = Path(temp) / "smoke.db"
         log_path = Path(temp) / "backend.log"
         port = free_port()
@@ -40,6 +42,8 @@ def main() -> int:
             "STOP_LOSS_DATABASE_URL": f"sqlite:///{database.as_posix()}",
             "STOP_LOSS_SCHEDULER_ENABLED": "0", "STOP_LOSS_FIXTURE_PRICE": "8.8",
             "STOP_LOSS_LOG_FORMAT": "text", "PYTHONDONTWRITEBYTECODE": "1",
+            "STOP_LOSS_TEMP_DIR": temp, "STOP_LOSS_NETWORK_SENTINEL": "1",
+            "STOP_LOSS_NETWORK_ALLOW_LOOPBACK": "1",
         })
         subprocess.run([sys.executable, "db_admin.py", "upgrade"], cwd=BACKEND, env=env, check=True)
         frontend_dist = ROOT / "frontend" / "dist"
@@ -94,7 +98,7 @@ def main() -> int:
                 _, settings = request(f"{base}/settings", "PUT", {
                     "poll_interval": 45, "monitor_interval": 7,
                 })
-                assert settings == {"poll_interval": 45, "monitor_interval": 7}
+                assert settings["poll_interval"] == 45 and settings["monitor_interval"] == 7
                 request(f"{base}/holdings/{created['id']}/close", "POST", {"close_price": 8.7})
                 _, dashboard = request(f"{base}/dashboard")
                 assert dashboard["closed_count"] == 1

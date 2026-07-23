@@ -8,8 +8,8 @@ const api = axios.create({
 
 export const PRICE_REFRESH_TIMEOUT_MS = 60000
 
-export function requestPriceRefresh() {
-  return api.post('/prices/refresh', undefined, { timeout: PRICE_REFRESH_TIMEOUT_MS })
+export function requestPriceRefresh(params = undefined) {
+  return api.post('/prices/refresh', undefined, { params, timeout: PRICE_REFRESH_TIMEOUT_MS })
 }
 
 export function requestHoldingHistory(holdingId, range = '3m') {

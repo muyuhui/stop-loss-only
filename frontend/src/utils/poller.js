@@ -1,9 +1,11 @@
-export function createPoller(callback, timers = globalThis) {
+export function createPoller(callback, timers = globalThis, documentRef = globalThis.document) {
   let timer = null
   return {
     start(seconds) {
       if (timer !== null) timers.clearInterval(timer)
-      timer = timers.setInterval(callback, seconds * 1000)
+      timer = timers.setInterval(() => {
+        if (!documentRef || documentRef.visibilityState !== 'hidden') callback()
+      }, seconds * 1000)
     },
     stop() {
       if (timer !== null) timers.clearInterval(timer)

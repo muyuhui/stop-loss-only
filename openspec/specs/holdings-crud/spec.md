@@ -181,3 +181,46 @@ Manage investment holdings (A-share stocks and funds) with create, read, update,
 - **WHEN** 历史接口成功但没有可展示的价格点
 - **THEN** 图表区域显示紧凑空状态和重试操作，不影响用户修改止损、刷新当前价格或平仓
 
+### Requirement: Keep lifecycle risk and quantity facts orthogonal
+系统 SHALL 分别记录 `lifecycle_status`、`risk_status` 和剩余数量；部分平仓 MUST 由平仓分配与剩余数量推导，不得作为覆盖风险状态的单一组合状态。
+
+#### Scenario: Triggered position is partially closed
+- **WHEN** 已触发仓位只关闭部分数量且用户尚未重新布防
+- **THEN** 仓位仍为 `lifecycle_status=open` 和 `risk_status=triggered`，同时保存部分平仓事实
+
+### Requirement: Add lots and close positions
+系统 SHALL 允许向开放仓位添加有效批次，并允许以有效数量、价格、时间、费用和税费部分或全部平仓；所有财务变更必须原子且创建事件。
+
+#### Scenario: Add lot to closed position
+- **WHEN** 用户尝试向已关闭仓位增加批次
+- **THEN** 系统拒绝请求且不修改任何财务事实
+
+#### Scenario: Close more than remaining quantity
+- **WHEN** 平仓数量大于总剩余数量
+- **THEN** 系统返回稳定校验错误且不创建 allocation
+
+### Requirement: Present closed positions as realized outcomes
+系统 SHALL 为关闭仓位返回净已实现收益、费用税费、持有期和历史事件，并停止返回可编辑的活动止损控件语义。
+
+#### Scenario: View closed position detail
+- **WHEN** 用户查询已关闭仓位
+- **THEN** 响应以已实现结果为主且不使用最新行情计算未实现盈亏
+
+### Requirement: Provide stable position list context
+仓位页面 SHALL 使用新版 positions API 提供搜索、生命周期、风险、资产类型和行情状态筛选、排序与分页，并将列表上下文同步到 URL query。
+
+#### Scenario: Return from position detail
+- **WHEN** 用户从详情返回仓位列表
+- **THEN** 搜索、筛选、排序和页码恢复到离开前状态
+
+### Requirement: Provide complete position disposition workflows
+仓位详情 SHALL 展示可行动行情、核算摘要、批次、规则和事件，并为触发仓位提供风险确认、重新布防和记录平仓的独立流程。
+
+#### Scenario: Triggered position on mobile
+- **WHEN** 用户在移动端打开已触发仓位
+- **THEN** 固定处置区可达且三个动作不与“标记已读”混淆
+
+#### Scenario: Closed position review
+- **WHEN** 用户打开已关闭仓位
+- **THEN** 页面进入复盘模式，隐藏刷新和止损编辑并展示已实现结果与时间线
+

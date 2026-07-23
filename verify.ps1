@@ -1,6 +1,11 @@
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $env:PYTHONDONTWRITEBYTECODE = '1'
+$projectTemp = Join-Path $root '.tmp\verify'
+New-Item -ItemType Directory -Path $projectTemp -Force | Out-Null
+$env:TEMP = $projectTemp
+$env:TMP = $projectTemp
+$env:STOP_LOSS_TEMP_DIR = $projectTemp
 Push-Location (Join-Path $root 'backend')
 try { & python -m pytest -p no:cacheprovider -q; if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' } } finally { Pop-Location }
 Push-Location (Join-Path $root 'frontend')

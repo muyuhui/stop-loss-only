@@ -23,7 +23,10 @@ class AppConfig:
     fixture_price: str | None = os.getenv("STOP_LOSS_FIXTURE_PRICE")
     temp_dir: Path = Path(os.getenv("STOP_LOSS_TEMP_DIR", str(BASE_DIR.parent / ".tmp")))
     provider_connect_timeout_seconds: float = float(os.getenv("STOP_LOSS_PROVIDER_CONNECT_TIMEOUT", "3"))
-    provider_total_timeout_seconds: float = float(os.getenv("STOP_LOSS_PROVIDER_TOTAL_TIMEOUT", "8"))
+    # AkShare's ETF spot endpoint may take more than 30 seconds for a cold
+    # download. A short timeout discards a valid intraday quote and silently
+    # replaces it with the previous day's fund NAV.
+    provider_total_timeout_seconds: float = float(os.getenv("STOP_LOSS_PROVIDER_TOTAL_TIMEOUT", "45"))
     provider_max_attempts: int = int(os.getenv("STOP_LOSS_PROVIDER_MAX_ATTEMPTS", "2"))
     provider_circuit_cooldown_seconds: int = int(os.getenv("STOP_LOSS_PROVIDER_CIRCUIT_COOLDOWN", "60"))
     calendar_cache_seconds: int = int(os.getenv("STOP_LOSS_CALENDAR_CACHE_SECONDS", "86400"))

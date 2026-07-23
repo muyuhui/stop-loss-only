@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+import time
 
 import pandas as pd
 import pytest
@@ -137,6 +138,63 @@ def test_each_market_dataset_downloads_at_most_once_per_cycle():
     assert fake.calls["stock"] == 1
 
 
+def test_etf_spot_quote_skips_lof_and_nav_fallbacks_when_the_code_is_available():
+    etf = pd.DataFrame([{
+        "代码": "588060", "最新价": 1.136, "行情时间": NOW.isoformat(),
+    }])
+    fake = FakeAk(etf=etf)
+    quote = AkshareQuoteProvider(ak_module=fake, now=NOW).fetch(
+        [Instrument("588060", "fund")], calendar(),
+    )[0]
+
+    assert quote.current_price == Decimal("1.136")
+    assert quote.source == "akshare-etf-spot"
+    assert quote.state is QuoteState.LIVE and quote.is_actionable
+    assert fake.calls["etf"] == 1
+    assert fake.calls["lof"] == 0 and fake.calls["nav"] == 0
+
+
+def test_direct_etf_quote_uses_a_single_instrument_request_before_bulk_feeds():
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"f43": 1136, "f57": "588060", "f169": -38, "f170": -324, "f124": 0}}
+
+    calls = []
+    def http_get(url, *, params, timeout):
+        calls.append((url, params, timeout))
+        return Response()
+
+    fake = FakeAk()
+    quote = AkshareQuoteProvider(ak_module=fake, http_get=http_get, now=NOW).fetch(
+        [Instrument("588060", "fund")], calendar(),
+    )[0]
+
+    assert quote.current_price == Decimal("1.136")
+    assert quote.source == "eastmoney-etf-spot" and quote.state is QuoteState.LIVE
+    assert calls[0][1]["secid"] == "1.588060"
+    assert fake.calls["etf"] == 0 and fake.calls["lof"] == 0 and fake.calls["nav"] == 0
+
+
+def test_etf_timeout_does_not_start_a_second_full_market_download():
+    class TimeoutEtfPolicy:
+        def run(self, key, operation):
+            if key == "etf":
+                raise ProviderFailure(ProviderErrorCode.TIMEOUT, retryable=True)
+            return operation()
+
+    fake = FakeAk()
+    quote = AkshareQuoteProvider(ak_module=fake, policy=TimeoutEtfPolicy(), now=NOW).fetch(
+        [Instrument("588060", "fund")], calendar(),
+    )[0]
+
+    assert quote.source == "akshare-open-fund-nav"
+    assert fake.calls["etf"] == 0 and fake.calls["lof"] == 0
+    assert fake.calls["nav"] == 1
+
+
 def test_call_policy_times_out_and_opens_circuit_with_stable_errors():
     policy = ProviderCallPolicy(total_timeout=0.001, attempts=1, cooldown=60, sleeper=lambda _: None)
 
@@ -152,3 +210,18 @@ def test_call_policy_times_out_and_opens_circuit_with_stable_errors():
         policy.run("slow", slow)
     assert first.value.code is ProviderErrorCode.TIMEOUT
     assert third.value.code is ProviderErrorCode.CIRCUIT_OPEN
+
+
+def test_call_policy_does_not_duplicate_an_inflight_timed_out_download():
+    policy = ProviderCallPolicy(total_timeout=0.001, attempts=2, sleeper=lambda _: None)
+    calls = []
+
+    def slow():
+        calls.append("started")
+        time.sleep(0.02)
+
+    with pytest.raises(ProviderFailure) as captured:
+        policy.run("slow-once", slow)
+
+    assert captured.value.code is ProviderErrorCode.TIMEOUT
+    assert calls == ["started"]

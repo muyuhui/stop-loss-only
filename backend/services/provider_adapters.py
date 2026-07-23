@@ -62,7 +62,10 @@ class ProviderCallPolicy:
                 last = ProviderFailure(ProviderErrorCode.UNAVAILABLE, retryable=True)
             finally:
                 executor.shutdown(wait=False, cancel_futures=True)
-            if last and (not last.retryable or attempt + 1 >= self.attempts):
+            # A Python worker already executing a timed-out provider call
+            # cannot be cancelled. Retrying it immediately starts a second
+            # expensive download and can make every later refresh slower.
+            if last and (not last.retryable or last.code is ProviderErrorCode.TIMEOUT or attempt + 1 >= self.attempts):
                 break
             self.sleeper(0.025 * (2 ** attempt) + random.uniform(0, 0.025))
         with self._lock:
@@ -126,10 +129,11 @@ class AkshareMarketCalendar:
 
 
 class AkshareQuoteProvider:
-    def __init__(self, *, policy: ProviderCallPolicy | None = None, ak_module=None, now: datetime | None = None):
+    def __init__(self, *, policy: ProviderCallPolicy | None = None, ak_module=None, now: datetime | None = None, http_get=None):
         self.policy = policy or ProviderCallPolicy()
         self.ak_module = ak_module
         self.fixed_now = now
+        self.http_get = http_get
         self._datasets: dict[str, object] = {}
         self._dataset_errors: dict[str, ProviderFailure] = {}
 
@@ -232,6 +236,56 @@ class AkshareQuoteProvider:
         actionable = state is QuoteState.NAV and calendar.source is not CalendarSource.WEEKDAY_FALLBACK
         return NormalizedQuote(code, "fund", price, Decimal("0"), state, "akshare-open-fund-nav", quoted_at, fetched_at, fresh_until, actionable)
 
+    def _direct_etf_quote(self, code: str, calendar: CalendarDecision, fetched_at: datetime) -> NormalizedQuote | None:
+        """Fetch one ETF from Eastmoney instead of downloading the whole market."""
+        # Unit tests pass an AkShare double and should remain fully hermetic.
+        if self.ak_module is not None and self.http_get is None:
+            return None
+        if self.http_get is None:
+            try:
+                import requests
+            except Exception:
+                return None
+            http_get = requests.get
+        else:
+            http_get = self.http_get
+
+        markets = ("1", "0") if str(code).startswith(("5", "6")) else ("0", "1")
+        for market in markets:
+            def load(market=market):
+                response = http_get(
+                    "https://push2delay.eastmoney.com/api/qt/stock/get",
+                    params={"secid": f"{market}.{code}", "fields": "f43,f57,f169,f170,f124"},
+                    timeout=config.provider_total_timeout_seconds,
+                )
+                response.raise_for_status()
+                return response.json().get("data") or {}
+
+            try:
+                payload = self.policy.run(f"etf-direct-{market}-{code}", load)
+                if str(payload.get("f57", "")).zfill(6) != code:
+                    continue
+                # Eastmoney returns ETF prices as thousandths (for example
+                # 1136 represents an ETF price of 1.136).
+                price = to_decimal(Decimal(str(payload.get("f43", 0))) / Decimal("1000"))
+                if price <= 0:
+                    continue
+                timestamp = payload.get("f124")
+                quoted_at = fetched_at
+                if timestamp:
+                    try:
+                        quoted_at = datetime.fromtimestamp(int(timestamp), tz=MARKET_TZ)
+                    except (TypeError, ValueError, OSError):
+                        pass
+                change = Decimal(str(payload.get("f170", 0) or 0)) / Decimal("100")
+                fresh_until = quoted_at + timedelta(seconds=config.quote_max_age_seconds)
+                state = QuoteState.LIVE if calendar.market_open else QuoteState.CLOSE
+                actionable = state is QuoteState.LIVE and calendar.source is not CalendarSource.WEEKDAY_FALLBACK
+                return NormalizedQuote(code, "fund", price, change, state, "eastmoney-etf-spot", quoted_at, fetched_at, fresh_until, actionable)
+            except (ProviderFailure, InvalidOperation, TypeError, ValueError):
+                continue
+        return None
+
     def fetch(self, instruments: Sequence[object], calendar: CalendarDecision) -> list[NormalizedQuote]:
         fetched_at = local_now(self.fixed_now or calendar.checked_at)
         unique = sorted({(str(item.type), str(item.code).zfill(6)) for item in instruments})
@@ -241,21 +295,44 @@ class AkshareQuoteProvider:
         except ProviderFailure as exc:
             return [self._error(code, asset_type, fetched_at, exc) for asset_type, code in unique]
 
+        direct_etf_quotes = {
+            code: quote for asset_type, code in unique if asset_type == "fund"
+            if (quote := self._direct_etf_quote(code, calendar, fetched_at)) is not None
+        }
+        remaining = [(asset_type, code) for asset_type, code in unique if code not in direct_etf_quotes]
         rows: dict[str, dict[str, object]] = {}
-        for dataset, needed, loader in (
-            ("stock", any(t == "stock" for t, _ in unique), lambda: ak.stock_zh_a_spot_em()),
-            ("etf", any(t == "fund" for t, _ in unique), lambda: ak.fund_etf_spot_em()),
-            ("lof", any(t == "fund" for t, _ in unique), lambda: ak.fund_lof_spot_em()),
-        ):
-            if not needed:
-                continue
+        if any(asset_type == "stock" for asset_type, _ in remaining):
             try:
-                rows[dataset] = self._rows_by_code(self._dataset(dataset, loader))
+                rows["stock"] = self._rows_by_code(self._dataset("stock", lambda: ak.stock_zh_a_spot_em()))
             except ProviderFailure:
-                rows[dataset] = {}
+                rows["stock"] = {}
+
+        # ETF and LOF share the legacy "fund" type.  Try the ETF feed first
+        # and only download the LOF feed for codes absent from it.  Apart from
+        # avoiding an expensive redundant request, this prevents a successful
+        # ETF quote from being obscured by a later fallback attempt.
+        fund_codes = {code for asset_type, code in remaining if asset_type == "fund"}
+        if fund_codes:
+            try:
+                rows["etf"] = self._rows_by_code(self._dataset("etf", lambda: ak.fund_etf_spot_em()))
+            except ProviderFailure:
+                rows["etf"] = {}
+            unresolved_fund_codes = fund_codes - set(rows["etf"])
+            etf_failure = self._dataset_errors.get("etf")
+            # Both endpoints download a full market table. If the ETF source
+            # timed out, a LOF request would repeat the same expensive work
+            # and make a manual refresh exceed its browser timeout.
+            if unresolved_fund_codes and (etf_failure is None or etf_failure.code is not ProviderErrorCode.TIMEOUT):
+                try:
+                    rows["lof"] = self._rows_by_code(self._dataset("lof", lambda: ak.fund_lof_spot_em()))
+                except ProviderFailure:
+                    rows["lof"] = {}
 
         results: list[NormalizedQuote] = []
         for asset_type, code in unique:
+            if code in direct_etf_quotes:
+                results.append(direct_etf_quotes[code])
+                continue
             if asset_type == "stock":
                 row = rows.get("stock", {}).get(code)
                 if row is None:

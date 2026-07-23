@@ -197,7 +197,7 @@ def run_monitoring_cycle(
                         holding.quote_state = state
                         holding.quote_error_code = result.get("error_code")
                         holding.fresh_until = result.get("fresh_until")
-                        if not actionable or result.get("current_price") is None:
+                        if result.get("current_price") is None:
                             if state in {QuoteState.CLOSE.value, QuoteState.UNPRICED.value}:
                                 skipped += 1
                             else:
@@ -214,6 +214,18 @@ def run_monitoring_cycle(
                         holding.stop_loss_price = StopLossEngine.calculate(
                             holding.buy_price, holding.highest_price, holding.stop_loss_method, holding.stop_loss_value,
                         )
+                        # A post-close quote is still useful for valuations and
+                        # display.  It must never create a stop-loss alert until
+                        # a later actionable market-session quote arrives.
+                        if state == QuoteState.CLOSE.value:
+                            succeeded += 1
+                            continue
+                        if not actionable:
+                            if state == QuoteState.UNPRICED.value:
+                                skipped += 1
+                            else:
+                                failed += 1
+                            continue
                         if holding.status != "holding" or not StopLossEngine.is_triggered(price, holding.stop_loss_price):
                             succeeded += 1
                             continue

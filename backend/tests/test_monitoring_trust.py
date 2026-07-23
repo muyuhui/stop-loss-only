@@ -13,6 +13,7 @@ from models import Alert, Holding, MonitoringCycle
 from services.fixture_adapters import FixtureCalendar
 from services.market_clock import MARKET_TZ
 from services.monitoring import MonitoringDatabaseBusy, _refresh_lock, _trigger_key, run_monitoring_cycle
+from services.quote_contracts import MarketSession
 
 
 NOW = datetime(2026, 7, 23, 10, 0, tzinfo=MARKET_TZ)
@@ -93,6 +94,25 @@ def test_partial_cycle_preserves_success_and_reports_committed_facts(tmp_path):
     assert good.current_price == Decimal("9.5000") and good.quote_state == "live"
     assert bad.current_price == Decimal("0.0000") and bad.quote_state == "error"
     assert cycle.success_count == 1 and cycle.failed_count == 1 and float(cycle.coverage_pct) == 50
+
+
+def test_close_quote_updates_current_price_without_triggering_alerts(tmp_path):
+    _, factory = file_factory(tmp_path)
+    db = factory()
+    db.add(make_holding())
+    db.commit()
+
+    result = run_monitoring_cycle(
+        db, now=NOW, calendar=FixtureCalendar(session=MarketSession.CLOSED),
+        price_loader=lambda holdings, now=None: [quote("000001", "8.8", state="close", actionable=False)],
+    )
+
+    db.expire_all()
+    holding = db.query(Holding).one()
+    assert result["status"] == "ok" and result["processed"] == 1 and result["triggered"] == []
+    assert holding.current_price == Decimal("8.8000")
+    assert holding.quote_state == "close" and holding.is_actionable is False
+    assert db.query(Alert).count() == 0
 
 
 def test_unique_conflict_isolated_by_savepoint_and_does_not_report_trigger(tmp_path):

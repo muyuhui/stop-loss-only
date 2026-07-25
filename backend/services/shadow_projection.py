@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from models import Alert, CloseAllocation, Holding, Instrument, MigrationAuthority, Position, PositionEvent, PositionLot, PositionQuote, StopRule
 from services.position_domain import LifecycleStatus, RiskStatus, activate_rule, close_position, create_position, event, utc_now
+from services.supported_runtime import reject_cutover
 
 
 def authority(db: Session) -> MigrationAuthority:
@@ -154,7 +155,4 @@ def project_after_legacy_commit(db: Session) -> None:
 
 
 def cutover(db: Session) -> None:
-    state = authority(db)
-    if state.stage not in {"legacy", "shadow-read"} or state.shadow_dirty or not reconcile_shadow(db)["matched"]:
-        raise ValueError("cutover_not_ready")
-    state.stage, state.readiness_reason = "new-authoritative", None
+    reject_cutover()

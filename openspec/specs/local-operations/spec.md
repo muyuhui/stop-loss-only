@@ -35,11 +35,15 @@
 - **THEN** 恢复中止，现有活动数据库不被替换
 
 ### Requirement: 安全的本地进程生命周期
-正常启动 SHALL 默认把服务绑定到 loopback、后端不启用 reload、只验证而不安装依赖，并且不得终止无关端口占用者。停止命令 SHALL 只处理经验证属于本项目的记录进程。
+正常启动 SHALL 默认把服务绑定到 loopback、后端不启用 reload、只验证而不安装依赖，并且不得终止无关端口占用者。停止命令 SHALL 只处理经验证属于本项目的记录进程。启动前 MUST 验证后端导入和前端已安装依赖与 lockfile 完整一致，而不是只检查依赖目录存在。
 
-#### Scenario: 端口可用
-- **WHEN** 配置和依赖有效且端口空闲
+#### Scenario: 端口可用且依赖完整
+- **WHEN** 配置、后端导入、前端依赖图有效且端口空闲
 - **THEN** 一个后端和一个前端进程在 loopback 启动，并报告 readiness
+
+#### Scenario: 前端依赖目录不完整
+- **WHEN** `node_modules` 存在但 lockfile 声明的任一直接依赖缺失
+- **THEN** 启动在创建服务进程前失败并显示明确 setup 命令
 
 #### Scenario: 端口被其他进程占用
 - **WHEN** 启动发现无关监听进程
@@ -48,10 +52,6 @@
 #### Scenario: PID 已被复用
 - **WHEN** 停止命令发现记录 PID 已不属于当前工作区命令
 - **THEN** 保留该进程、不删除无关数据，并报告不匹配
-
-#### Scenario: 缺少依赖
-- **WHEN** 正常启动发现运行依赖缺失
-- **THEN** 退出并显示明确 setup 命令，不自动安装软件包
 
 ### Requirement: 单一调度器所有者
 受支持的正常部署 SHALL 只运行一个调度器所有者，在启动前恢复持久化间隔，并随应用 lifespan 优雅关闭。
@@ -84,33 +84,15 @@
 - **THEN** readiness 仍由本地服务状态决定，行情失败通过监控诊断报告
 
 ### Requirement: Migrate through explicit authority stages
-系统 SHALL 使用有序 migration 将数据库依次置于 `legacy`、`shadow-read` 和 `new-authoritative` 阶段，并在每个阶段记录唯一事实来源；MUST NOT 同时把新旧模型声明为权威写源。
+系统 SHALL 在本稳定版本中只支持 `legacy` 与 `shadow-read` 运行阶段，且两者均以旧 `Holding` 模型作为唯一权威写源。系统 MUST 保留 shadow 重建与对账能力，但 MUST 拒绝进入 `new-authoritative`，直到后续 change 证明监控、历史、兼容 API、前端写入和恢复流程均使用新权威模型。
 
-#### Scenario: Shadow comparison succeeds
-- **WHEN** 旧模型写入后的新模型投影与数量、成本、状态、止损价、告警和汇总全部一致
-- **THEN** 系统记录成功对账，但在受控切换前仍由旧模型响应
+#### Scenario: 启用 shadow 诊断
+- **WHEN** 用户从 `legacy` 启用 shadow read
+- **THEN** 系统继续只向旧模型写入，并允许重建和对账新模型投影
 
-#### Scenario: Shadow comparison fails
-- **WHEN** 任一关键对账项不一致
-- **THEN** 系统阻止进入 `new-authoritative` 并暴露不含敏感值的 readiness 原因
-
-#### Scenario: Post-commit projection is interrupted
-- **WHEN** 旧模型事务已经提交但进程在 shadow 投影完成前退出
-- **THEN** 旧模型继续作为唯一权威事实，shadow 被视为 dirty，幂等全量重建与对账成功前不得切换权威模式
-
-### Requirement: Switch authority only at a controlled cutover
-系统 SHALL 在停止调度和业务写入、创建校验备份、完成最终投影与对账后原子切换到新模型权威模式；切换后的回滚 MUST 使用经验证的反向迁移或备份恢复。
-
-#### Scenario: Cutover validation fails
-- **WHEN** 最终对账、备份或 readiness 任一步失败
-- **THEN** 系统保持旧模型权威且不得开放新模型专属写操作
-
-### Requirement: Preserve legacy API for one stable release
-系统 SHALL 在新版 positions API 正式发布后的一个稳定版本内，将新模型映射为旧 holdings 和 dashboard DTO；移除旧接口必须由独立 change 执行。
-
-#### Scenario: Legacy route after cutover
-- **WHEN** 客户端在兼容期调用旧持仓路由
-- **THEN** 响应由新权威模型映射并满足已固化契约
+#### Scenario: 尝试未支持的切换
+- **WHEN** 用户在本稳定版本执行 cutover
+- **THEN** 命令在备份、投影写入和权威状态修改前以非零状态退出，并返回稳定的 `cutover_not_supported` 原因
 
 ### Requirement: Validate WAL-aware backup and restore
 备份 SHALL 使用 SQLite 一致性快照并记录 checksum、schema 版本和完整性信息；恢复 MUST 在替换前验证 manifest、支持的 schema、目标路径和数据库完整性，并创建当前数据库恢复点。

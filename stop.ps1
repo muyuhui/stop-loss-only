@@ -4,6 +4,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+. (Join-Path $root 'scripts\process_identity.ps1')
 
 function Get-ProcessDescendants([int]$RootPid) {
     $descendants = @()
@@ -34,8 +35,8 @@ function Stop-OwnedProcess([string]$RecordName) {
     $record = Get-Content -LiteralPath $recordPath -Encoding UTF8 -Raw | ConvertFrom-Json
     $process = Get-Process -Id $record.pid -ErrorAction SilentlyContinue
     if (-not $process) { Remove-Item -LiteralPath $recordPath -Force; return }
-    $actualStart = $process.StartTime.ToUniversalTime().ToString('o')
-    if ($record.root -ne $root -or $actualStart -ne $record.started_at) {
+    $startMatches = Test-RecordedProcessStart -RecordedStart $record.started_at -ActualStart $process.StartTime
+    if ($record.root -ne $root -or -not $startMatches) {
         Write-Warning "PID $($record.pid) ownership check failed; it was not terminated."
         return
     }

@@ -13,6 +13,8 @@ from scheduler import scheduler, start_scheduler, stop_scheduler
 from routers.settings import get_effective_settings
 from observability import RequestLoggingMiddleware, configure_logging
 from network_guard import install_from_environment
+from models import MigrationAuthority
+from services.supported_runtime import authority_readiness
 
 
 install_from_environment()
@@ -24,10 +26,13 @@ async def lifespan(app: FastAPI):
     if current_version(engine) == LATEST_SCHEMA_VERSION and config.scheduler_enabled:
         db = SessionLocal()
         try:
-            interval = get_effective_settings(db)["monitor_interval"]
+            state = db.get(MigrationAuthority, 1)
+            supported, _ = authority_readiness(state.stage if state else "legacy")
+            interval = get_effective_settings(db)["monitor_interval"] if supported else None
         finally:
             db.close()
-        start_scheduler(interval)
+        if interval is not None:
+            start_scheduler(interval)
     yield
     stop_scheduler()
 
@@ -55,6 +60,15 @@ def create_app() -> FastAPI:
             if version != LATEST_SCHEMA_VERSION:
                 response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
                 return {"status": "not_ready", "reason": "database migration required", "schema_version": version}
+            db = SessionLocal()
+            try:
+                state = db.get(MigrationAuthority, 1)
+                supported, detail = authority_readiness(state.stage if state else "legacy")
+            finally:
+                db.close()
+            if not supported:
+                response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+                return {"status": "not_ready", "schema_version": version, **detail}
             return {"status": "ok", "schema_version": version, "scheduler_running": scheduler.running if config.scheduler_enabled else False}
         except Exception:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

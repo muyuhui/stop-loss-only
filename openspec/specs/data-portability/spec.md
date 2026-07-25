@@ -1,28 +1,18 @@
 # data-portability Specification
 
 ## Purpose
-TBD - created by archiving change extend-local-platform. Update Purpose after archive.
+定义稳定版本的数据携带与恢复边界；当前只支持可校验的 SQLite 备份恢复，并在 CSV 无法无损表示权威事实时默认拒绝导入导出。
 ## Requirements
-### Requirement: Preview CSV imports before mutation
-系统 SHALL 对有大小、行数和编码限制的标准 CSV 进行零写入预览，返回短期本地令牌、规范化行和逐行稳定错误。
+### Requirement: 可移植格式无法表示权威事实时默认拒绝
+本稳定版本 SHALL 不显示 CSV 导入导出控件，并 SHALL 拒绝对应公共 HTTP 操作，直到 CSV 能无损表示当前权威模型且导入记录会立即进入受支持列表与监控。数据库备份与停服恢复继续作为受支持的数据可恢复路径。
 
-#### Scenario: Mixed valid and invalid rows
-- **WHEN** 文件同时包含合法和非法行
-- **THEN** 预览返回全部可展示结果且数据库不发生变化
+#### Scenario: 直接请求 CSV 导入
+- **WHEN** 客户端绕过前端直接请求 CSV 预览或提交
+- **THEN** 系统返回稳定的 `feature_not_supported`，且 Holding、Position 和导入审计表均不发生变化
 
-### Requirement: Commit an approved import atomically
-系统 SHALL 只提交未过期且内容未改变的预览令牌，并在单一事务中创建领域对象与导入事件。
-
-#### Scenario: Preview token expires
-- **WHEN** 用户提交过期令牌
-- **THEN** 系统拒绝提交且不产生部分导入
-
-### Requirement: Export stable and safe CSV
-系统 SHALL 导出带 schema 版本和生成时间的稳定列，以不丢精度的文本表示 Decimal，并转义公式起始字符。
-
-#### Scenario: Text begins with formula marker
-- **WHEN** 名称以 `=`, `+`, `-` 或 `@` 开头
-- **THEN** 导出值被安全转义且重新导入可恢复原文本
+#### Scenario: 用户需要可携带恢复产物
+- **WHEN** 用户在稳定版本创建数据恢复点
+- **THEN** 系统提供经过校验的 SQLite 备份和 manifest，而不声称 CSV 可完整恢复当前数据
 
 ### Requirement: Create user-verifiable backups
 设置界面 SHALL 只允许在受控备份目录创建带 checksum、schema 版本和 WAL 感知 manifest 的一致性备份；恢复 MUST 继续要求停服命令。

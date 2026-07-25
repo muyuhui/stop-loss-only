@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'
 
-test('browser notification permission is requested only from the explicit action', () => {
+test('stable settings do not expose browser notification permission', () => {
   const source = fs.readFileSync(new URL('../src/views/Settings.vue', import.meta.url), 'utf8')
-  assert.match(source, /Notification\.requestPermission\(\)/)
-  assert.match(source, /@click="requestBrowserNotifications"/)
-  assert.match(source, /notificationState !== 'default'/)
+  assert.doesNotMatch(source, /Notification\.requestPermission\(\)/)
+  assert.doesNotMatch(source, /requestBrowserNotifications/)
+  assert.doesNotMatch(source, /Browser notifications/)
 })

@@ -1,13 +1,20 @@
 # Stop-Loss Platform Evolution Roadmap
 
-本路线图保留原 `evolve-stop-loss-platform` 总体方向，但不作为可执行 change。实施工作拆为四个按顺序交付和归档的 OpenSpec change：
+本路线图保留原 `evolve-stop-loss-platform` 总体方向，但不作为当前稳定版本的能力声明。已归档 change 记录历史设计和实现尝试；当前受支持边界由 `stabilize-supported-runtime` 收缩并重新验证。
 
 原始完整 proposal、design、specs 和 tasks 保留在 Git commit `11a9760`，用于追溯拆分前的设计背景；本文件是拆分后的路线图入口。
 
 1. `harden-monitoring-trust`：修复行情可信度、离线测试、监控诊断和并发触发一致性。
-2. `introduce-position-domain`：引入正交仓位状态、批次核算、事件历史和受控事实源切换。
-3. `redesign-risk-workflows`：基于稳定 API 重做风险优先的仪表盘、仓位和告警工作流。
-4. `extend-local-platform`：增加可选通知、数据可移植性、保留清理和本地运维能力。
+2. `introduce-position-domain`：已建立 shadow 数据结构；Position 权威切换与写工作流尚未成为稳定能力。
+3. `redesign-risk-workflows`：legacy Holding 的风险优先界面可用；Position 处置流程继续推迟。
+4. `extend-local-platform`：数据结构和服务原型保留；CSV、Webhook、浏览器通知和 retention 尚无完整运行时 owner，因此稳定版本默认拒绝。
+
+## 当前稳定化边界
+
+- `legacy` / `shadow-read` 继续以 Holding 为唯一权威事实源。
+- Position 表与 shadow 重建/对账保留用于迁移诊断，但不提供公共写入或 cutover。
+- CSV 可移植性、外部通知投递和 retention 必须分别通过新的 OpenSpec change、真实 worker 所有权和 E2E 后才能重新上线。
+- 已经处于 `new-authoritative` 的数据库必须恢复切换前备份；禁止自动反向投影。
 
 ## Product Boundary
 
@@ -19,7 +26,7 @@
 
 ## Delivery Rules
 
-- 每个 change 必须在完整门禁通过并归档后，后续 change 才能开始实施。
+- 每个未来 change 必须在完整门禁通过并归档后，能力才可加入受支持运行面。
 - 迁移和兼容行为以各 change 的 design、specs 和 tasks 为准，本路线图不重复定义可执行要求。
 - 旧 HTTP API 的移除、成本方法切换、高级止损策略和其他新增范围必须分别建立后续 change。
 

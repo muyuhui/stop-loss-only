@@ -1,27 +1,25 @@
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 from config import config
 from database import get_db
 from migrations import backup_database
-from services.csv_portability import commit_preview, export_positions, preview_csv
+from services.supported_runtime import feature_not_supported
+from schemas import ErrorResponse
 
 router = APIRouter(prefix="/operations", tags=["operations"])
 
-@router.post("/import/preview")
-def import_preview(body: bytes, db: Session = Depends(get_db)):
-    try: return preview_csv(body)
-    except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+@router.post("/import/preview", responses={409: {"model": ErrorResponse}})
+def import_preview(body: bytes = Body(..., media_type="application/octet-stream"), db: Session = Depends(get_db)):
+    raise HTTPException(409, feature_not_supported("csv_import"))
 
-@router.post("/import/{token}/commit")
+@router.post("/import/{token}/commit", responses={409: {"model": ErrorResponse}})
 def import_commit(token: str, db: Session = Depends(get_db)):
-    try: return {"positions": [row.id for row in commit_preview(db, token)]}
-    except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+    raise HTTPException(409, feature_not_supported("csv_import"))
 
-@router.get("/export.csv", response_class=PlainTextResponse)
+@router.get("/export.csv", responses={409: {"model": ErrorResponse}})
 def export_csv(db: Session = Depends(get_db)):
-    return PlainTextResponse(export_positions(db), media_type="text/csv")
+    raise HTTPException(409, feature_not_supported("csv_export"))
 
 @router.post("/backup")
 def backup():

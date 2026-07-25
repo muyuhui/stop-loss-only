@@ -112,7 +112,7 @@ def main() -> int:
                         owned_process.wait(timeout=5)
             if process.poll() is None or frontend_process.poll() is None:
                 raise RuntimeError("冒烟测试残留自有进程")
-    print("端到端冒烟测试通过")
+    print("离线 API/进程冒烟测试通过")
     return 0
 
 

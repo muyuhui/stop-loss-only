@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateRange(1, 65535)][int]$BackendPort = 8001,
     [ValidateRange(1, 65535)][int]$FrontendPort = 5173,
     [switch]$Restart
@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $logDir = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+. (Join-Path $root 'scripts\npm_environment.ps1')
+Initialize-ProjectNpmEnvironment -StateRoot (Join-Path $root '.tmp\runtime')
 
 function Normalize-ProcessPathEnvironment {
     # Windows environment names are case-insensitive, while Start-Process builds
@@ -40,7 +42,11 @@ if ($Restart) {
 
 & python -c "import fastapi, sqlalchemy, apscheduler, akshare" 2>$null
 if ($LASTEXITCODE -ne 0) { throw 'Backend dependencies are missing. Run .\setup.ps1 first.' }
-if (-not (Test-Path -LiteralPath (Join-Path $root 'frontend\node_modules'))) { throw 'Frontend dependencies are missing. Run .\setup.ps1 first.' }
+Push-Location (Join-Path $root 'frontend')
+try {
+    & node scripts/check-dependencies.mjs
+    if ($LASTEXITCODE -ne 0) { throw '前端依赖不完整或与 package-lock.json 不一致，请运行 .\setup.ps1。' }
+} finally { Pop-Location }
 Assert-PortAvailable $BackendPort
 Assert-PortAvailable $FrontendPort
 

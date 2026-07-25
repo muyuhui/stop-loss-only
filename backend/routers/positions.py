@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Instrument, Position, PositionEvent, PositionQuote, StopRule
-from services.position_domain import acknowledge_risk, add_lot, close_position, create_position, rearm_position
-from services.shadow_projection import authority
+from schemas import ErrorResponse, PositionCloseRequest, PositionLotRequest, PositionOpenRequest, PositionRiskRequest, PositionRearmRequest
+from services.supported_runtime import feature_not_supported
 
 
 router = APIRouter(prefix="/positions", tags=["positions"])
@@ -39,9 +39,8 @@ def _payload(db: Session, row: Position):
     }
 
 
-def _new_only(db: Session):
-    if authority(db).stage != "new-authoritative":
-        raise HTTPException(409, {"error_code": "new_authority_required"})
+def _writes_disabled():
+    raise HTTPException(409, feature_not_supported("position_write"))
 
 
 @router.get("")
@@ -56,15 +55,9 @@ def list_positions(
     return {"items": [_payload(db, p) for p in query.order_by(Position.id).all()]}
 
 
-@router.post("")
-def open_position(data: dict, db: Session = Depends(get_db)):
-    _new_only(db)
-    try:
-        row = create_position(db, code=data["code"], asset_type=data["asset_type"], name=data["name"], quantity=data["quantity"], unit_cost=data["unit_cost"], fees=data.get("fees", 0), taxes=data.get("taxes", 0))
-        db.commit()
-    except (KeyError, ValueError) as exc:
-        db.rollback(); raise HTTPException(422, str(exc)) from exc
-    return _payload(db, row)
+@router.post("", responses={409: {"model": ErrorResponse}})
+def open_position(data: PositionOpenRequest, db: Session = Depends(get_db)):
+    _writes_disabled()
 
 
 @router.get("/{position_id}")
@@ -83,40 +76,24 @@ def row_lots(db: Session, row: Position):
     return db.query(PositionLot).filter(PositionLot.position_id == row.id).order_by(PositionLot.opened_at, PositionLot.id).all()
 
 
-@router.post("/{position_id}/lots")
-def add_position_lot(position_id: int, data: dict, db: Session = Depends(get_db)):
-    _new_only(db); row = _position(db, position_id)
-    try:
-        add_lot(db, row, quantity=data["quantity"], unit_cost=data["unit_cost"], fees=data.get("fees", 0), taxes=data.get("taxes", 0)); db.commit()
-    except (KeyError, ValueError) as exc:
-        db.rollback(); raise HTTPException(422, str(exc)) from exc
-    return _payload(db, row)
+@router.post("/{position_id}/lots", responses={409: {"model": ErrorResponse}})
+def add_position_lot(position_id: int, data: PositionLotRequest, db: Session = Depends(get_db)):
+    _writes_disabled()
 
 
-@router.post("/{position_id}/close")
-def close(position_id: int, data: dict, db: Session = Depends(get_db)):
-    _new_only(db); row = _position(db, position_id)
-    try:
-        allocations = close_position(db, row, quantity=data["quantity"], close_price=data["close_price"], fees=data.get("fees", 0), taxes=data.get("taxes", 0)); db.commit()
-    except (KeyError, ValueError) as exc:
-        db.rollback(); raise HTTPException(422, str(exc)) from exc
-    return {**_payload(db, row), "allocations": [{"quantity": _decimal(a.quantity), "realized_pnl": _decimal(a.realized_pnl)} for a in allocations]}
+@router.post("/{position_id}/close", responses={409: {"model": ErrorResponse}})
+def close(position_id: int, data: PositionCloseRequest, db: Session = Depends(get_db)):
+    _writes_disabled()
 
 
-@router.post("/{position_id}/acknowledge")
-def acknowledge(position_id: int, data: dict, db: Session = Depends(get_db)):
-    _new_only(db); row = _position(db, position_id)
-    try: acknowledge_risk(db, row, expected_version=data["expected_version"], reason=data["reason"]); db.commit()
-    except (KeyError, ValueError) as exc: db.rollback(); raise HTTPException(409, str(exc)) from exc
-    return _payload(db, row)
+@router.post("/{position_id}/acknowledge", responses={409: {"model": ErrorResponse}})
+def acknowledge(position_id: int, data: PositionRiskRequest, db: Session = Depends(get_db)):
+    _writes_disabled()
 
 
-@router.post("/{position_id}/rearm")
-def rearm(position_id: int, data: dict, db: Session = Depends(get_db)):
-    _new_only(db); row = _position(db, position_id)
-    try: rearm_position(db, row, expected_version=data["expected_version"], method=data["method"], value=data["value"], reason=data["reason"]); db.commit()
-    except (KeyError, ValueError) as exc: db.rollback(); raise HTTPException(409, str(exc)) from exc
-    return _payload(db, row)
+@router.post("/{position_id}/rearm", responses={409: {"model": ErrorResponse}})
+def rearm(position_id: int, data: PositionRearmRequest, db: Session = Depends(get_db)):
+    _writes_disabled()
 
 
 @router.get("/{position_id}/history")

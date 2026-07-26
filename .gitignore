@@ -20,6 +20,7 @@ dist/
 # Node
 node_modules/
 frontend/dist/
+frontend/.npm-cache/
 
 # DB
 *.db

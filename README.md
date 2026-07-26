@@ -42,6 +42,7 @@
 - 后端使用单 worker、无 reload，且只启动一个调度器。
 - 端口被占用时报告所有者并退出，绝不终止无关进程。
 - 停止时只终止 PID、启动时间和项目记录均匹配的自有进程。
+- 在创建任何服务进程前验证后端导入和 `package-lock.json` 对应的完整前端依赖图；依赖不完整时按提示重新运行 `./setup.ps1`。
 
 访问地址：
 
@@ -82,7 +83,7 @@ cd ..
 .\verify.ps1
 ```
 
-验证命令依次运行：后端离线测试、前端行为测试、生产构建与包体预算、隔离端到端冒烟、OpenSpec 严格校验。默认测试不访问真实行情网络；真实 akshare 验证应在交易时段手动执行，并与必选门禁分开记录。
+验证命令为每次运行创建独立临时根目录，依次执行依赖预检、后端离线测试、前端真实组件测试、生产构建与包体预算、三视口浏览器 E2E、离线 API/进程 smoke、恢复演练以及全部当前 OpenSpec 严格校验。默认测试不访问真实行情网络；真实 akshare 验证应在交易时段手动执行，并与必选门禁分开记录。
 
 ## 日志与排障
 
@@ -105,44 +106,37 @@ cd ..
 - 监控周期只记录状态、时间、覆盖率、聚合计数和稳定错误码，不保存价格、数量、成本或提供方原始响应。
 - 当前只支持单进程、单 worker、单调度器运行。调度刷新与手动刷新由进程内有界互斥锁协调；不要将该锁视为多进程协调机制。
 
-## Position domain migration
+## 受支持运行面
 
-The position domain has three explicit authority stages: `legacy`, `shadow-read`, and
-`new-authoritative`. During the compatibility window, legacy holdings remain the only
-writer; enable shadow reads with `python backend/db_admin.py shadow-enable`, and use
-`shadow-rebuild` after an interruption. Cutover is an offline operation: stop the app,
-run `python backend/db_admin.py cutover`, and retain the generated verified backup.
+当前稳定版本有意收缩到 legacy `Holding` 权威模型：
 
-After cutover, the new position model is authoritative and legacy holdings endpoints are
-read-only compatibility DTOs for one stable release. Removing those routes requires a
-separate OpenSpec change. The irreversible boundary is the cutover; rollback is performed
-by stopping the app and running `python backend/db_admin.py restore <backup> <manifest>`.
-FIFO is the only supported cost-basis method, and the application remains a single-process,
-single-worker local deployment.
+| 运行面 | 当前状态 |
+|---|---|
+| Holding 创建、列表、详情、止损修改、整笔手动平仓 | 支持 |
+| 仪表盘、价格与历史、定时/手动监控 | 只读取并更新 Holding |
+| 告警 | 支持站内快照和已读；处置入口进入 `/holdings/:id` |
+| `shadow-read`、shadow 重建与对账 | 支持只读迁移诊断 |
+| SQLite 备份、停服恢复、隐私安全诊断 | 支持 |
+| Position 创建、加仓、部分平仓、确认、重新布防 | 推迟，HTTP 返回 `409 feature_not_supported` |
+| CSV 导入导出 | 推迟，HTTP 返回 `409 feature_not_supported` |
+| Webhook、浏览器系统通知、retention 控制 | 推迟，不在稳定 UI 显示且后端拒绝修改 |
 
-## Local platform extensions
+`legacy` 和 `shadow-read` 是当前仅有的受支持权威阶段，两者都只向 Holding 写入。可运行 `python backend/db_admin.py shadow-enable`、`shadow-rebuild` 和 `shadow-status` 维护诊断投影。`python backend/db_admin.py cutover` 会在备份或数据库修改前以 `cutover_not_supported` 拒绝，不存在可用于绕过该边界的稳定开关。
 
-- In-app alerts are authoritative. Browser notifications and signed webhooks are optional,
-  best-effort channels and may be disabled independently.
-- Browser permission is requested only after selecting the enable action. A denied or
-  unsupported permission does not hide any in-app alerts.
-- CSV import accepts only the standard v1 schema. Preview has no writes; commit uses the
-  short-lived preview token. CSV export escapes formula prefixes and preserves Decimals.
-- Backups are created in the controlled local directory. Stop the service before recovery:
-  `python backend/db_admin.py restore <backup> <manifest>`. Diagnostics omit databases,
-  secrets, prices, quantities, costs, and provider response bodies.
+如果数据库已经处于 `new-authoritative`，应用 readiness 会返回 503 且不会启动调度器。请停止服务，找到切换前生成并验证过的 `.db` 与 `.json` manifest，然后运行：
 
-## Risk workflow guide
+```powershell
+python backend/db_admin.py restore <backup.db> <manifest.json>
+```
 
-- Treat a quote as actionable only when the interface marks it as such; delayed,
-  stale, unpriced, and error states are informational and cannot trigger a stop.
-- Reading an alert only clears its unread badge. A triggered position requires a
-  separate acknowledgement, rearm, or close disposition in its position detail.
-- Partial closes preserve FIFO lot allocation and leave an open position in risk
-  monitoring until the remaining quantity reaches zero. Closed positions are
-  review-only and show their recorded events and realized results.
-- The Positions and Alerts filters are stored in the URL, so the selected view is
-  retained when moving between a list and a detail page.
+恢复后重新运行 readiness 和 `./verify.ps1`。系统不会自动把 Position 反向投影到 Holding，以免静默改变财务事实。
+
+## 风险工作流
+
+- 只有界面标记为可行动的行情可以触发止损；延迟、过期、未定价和错误行情只用于诊断。
+- 将告警标记为已读只清除未读状态，不会关闭持仓或改变触发事实。
+- 告警中的“查看持仓”进入 legacy 持仓详情，手动平仓需要单独确认并记录实际成交价。
+- 当前只支持整笔关闭 Holding；Position 批次、FIFO 分配和部分平仓保留在后续平台 change 中。
 
 ## Risk budget and position planner
 

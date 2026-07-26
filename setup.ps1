@@ -1,6 +1,8 @@
 param([switch]$Dev)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+. (Join-Path $root 'scripts\npm_environment.ps1')
+Initialize-ProjectNpmEnvironment -StateRoot (Join-Path $root '.tmp\setup')
 Push-Location (Join-Path $root 'backend')
 try {
     $requirements = if ($Dev) { 'requirements-dev.txt' } else { 'requirements.txt' }

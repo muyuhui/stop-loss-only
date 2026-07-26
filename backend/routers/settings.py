@@ -6,9 +6,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import ChannelMetadata, Setting
-from schemas import SettingsResponse, SettingsUpdate
-from services.secret_store import clear_secret, set_secret
-from services.delivery import normalize_target
+from schemas import ErrorResponse, SettingsResponse, SettingsUpdate
+from services.supported_runtime import feature_not_supported
 
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -20,6 +19,11 @@ DEFAULTS = {
 }
 INTEGER_KEYS = {"poll_interval", "monitor_interval", "quote_retention_days", "diagnostics_retention_days", "import_max_bytes", "import_max_rows"}
 DECIMAL_KEYS = {"portfolio_equity", "portfolio_risk_limit_pct", "default_position_risk_limit_pct"}
+UNSUPPORTED_FIELDS = {
+    "webhook_enabled", "webhook_target_url", "webhook_secret", "clear_webhook_secret",
+    "webhook_payload_level", "quote_retention_days", "diagnostics_retention_days",
+    "import_max_bytes", "import_max_rows",
+}
 
 
 def get_effective_settings(db: Session) -> dict:
@@ -49,8 +53,11 @@ def get_settings(db: Session = Depends(get_db)):
     return get_effective_settings(db)
 
 
-@router.put("", response_model=SettingsResponse)
+@router.put("", response_model=SettingsResponse, responses={409: {"model": ErrorResponse}})
 def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
+    requested_unsupported = data.model_fields_set.intersection(UNSUPPORTED_FIELDS)
+    if requested_unsupported:
+        raise HTTPException(409, feature_not_supported("runtime_extension_settings"))
     old = get_effective_settings(db)
     incoming = data.model_dump(exclude_none=True, exclude={"webhook_secret", "clear_webhook_secret", "webhook_target_url"})
     prospective = {**old, **incoming}
@@ -74,17 +81,6 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
                 row.value = value.isoformat() if isinstance(value, datetime) else str(value)
             else:
                 db.add(Setting(key=key, value=value.isoformat() if isinstance(value, datetime) else str(value)))
-        channel = db.get(ChannelMetadata, "webhook") or ChannelMetadata(channel="webhook")
-        if channel not in db: db.add(channel)
-        if data.webhook_target_url is not None: channel.target_url = normalize_target(data.webhook_target_url) if data.webhook_target_url.strip() else None
-        if data.webhook_enabled is not None: channel.enabled = data.webhook_enabled
-        if data.webhook_payload_level is not None: channel.payload_level = data.webhook_payload_level
-        if data.webhook_secret is not None:
-            set_secret("webhook", data.webhook_secret)
-            channel.secret_configured = True
-        if data.clear_webhook_secret:
-            clear_secret("webhook")
-            channel.secret_configured = False
         db.commit()
     except Exception as exc:
         db.rollback()

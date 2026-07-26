@@ -16,15 +16,11 @@ Provide a portfolio overview dashboard with summary metrics, holdings status, an
 - **THEN** 所有金额和状态数量均为零
 
 ### Requirement: Holdings overview list
-系统 SHALL 在仪表盘中列出 `holding` 和 `triggered`，并返回与持仓 API 一致的标识、价格、行情元数据、止损字段、状态、收益率和止损距离。
+系统 SHALL 从 legacy `Holding` 权威模型列出 `holding` 和 `triggered` 记录，并返回与稳定持仓 API 一致的标识、价格、行情元数据、止损字段、状态、收益率和止损距离。每个详情入口 MUST 指向已注册的 `/holdings/:id` 页面。
 
-#### Scenario: 仪表盘包含当前持仓
-- **WHEN** 用户请求 `GET /api/dashboard`
-- **THEN** 每项派生字段与持仓 API 中同一快照一致
-
-#### Scenario: 存在已关闭持仓
-- **WHEN** 组合包含 `closed` 持仓
-- **THEN** 它们计入已实现汇总，但不计入当前敞口列表
+#### Scenario: 查看风险持仓
+- **WHEN** 仪表盘显示一个活动或已触发持仓
+- **THEN** 用户可以从桌面表格或移动卡片进入对应的稳定持仓详情
 
 ### Requirement: Today's alert summary
 系统 SHALL 按 Asia/Shanghai 自然日边界返回今日告警数和最新告警快照。
@@ -83,15 +79,15 @@ Provide a portfolio overview dashboard with summary metrics, holdings status, an
 - **THEN** 页面保留现有数据并提供轻量失败提示和手动重试入口
 
 ### Requirement: Return Decimal-safe portfolio accounting summaries
-仪表盘 API SHALL 从新仓位领域模型计算开放市值、剩余成本、净已实现/未实现盈亏、风险金额和估值覆盖率，并以 Decimal 安全表示返回。
+仪表盘 API SHALL 只从当前受支持的 legacy `Holding` 权威模型计算开放成本、可估值市值、未实现盈亏、已实现盈亏、生命周期数量和行情覆盖信息，并 MUST NOT 将 shadow `Position` 数据混入同一响应。财务中间计算 SHALL 使用 Decimal，响应保持冻结的仪表盘契约。
 
-#### Scenario: Active and closed positions coexist
-- **WHEN** 组合同时包含开放、部分平仓和关闭仓位
-- **THEN** 开放指标只使用剩余数量，已实现指标包含全部 allocation，二者不得重复计算
+#### Scenario: 存在 shadow 投影
+- **WHEN** 数据库同时包含 legacy holdings 和对应 shadow positions
+- **THEN** 仪表盘只计算一次 legacy 权威事实且结果不因 shadow 重建而变化
 
-#### Scenario: Quote coverage is incomplete
-- **WHEN** 部分开放仓位没有可行动行情
-- **THEN** API 返回降低的覆盖率并明确实时汇总未覆盖的仓位数量
+#### Scenario: 持仓没有可用行情
+- **WHEN** 活动持仓尚无可估值行情
+- **THEN** 仪表盘排除该实时估值、保留成本事实并明确降低覆盖率
 
 ### Requirement: Present monitoring trust before portfolio totals
 仪表盘 SHALL 在首屏持续显示市场/调度状态、最近成功时间、可行动行情覆盖率、失败数量和诊断入口，并将待处理风险置于普通资产汇总之前。

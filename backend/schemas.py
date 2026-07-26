@@ -177,6 +177,52 @@ class RiskPlanResponse(BaseModel):
     required_capital: str | None = None
 
 
+class PositionOpenRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    asset_type: Literal["stock", "fund"]
+    quantity: float = Field(..., gt=0)
+    unit_cost: float = Field(..., gt=0)
+    fees: float = Field(0, ge=0)
+    taxes: float = Field(0, ge=0)
+
+
+class PositionLotRequest(BaseModel):
+    quantity: float = Field(..., gt=0)
+    unit_cost: float = Field(..., gt=0)
+    fees: float = Field(0, ge=0)
+    taxes: float = Field(0, ge=0)
+
+
+class PositionCloseRequest(BaseModel):
+    quantity: float = Field(..., gt=0)
+    close_price: float = Field(..., gt=0)
+    fees: float = Field(0, ge=0)
+    taxes: float = Field(0, ge=0)
+
+
+class PositionRiskRequest(BaseModel):
+    expected_version: int = Field(..., ge=1)
+    reason: str = Field(..., min_length=1, max_length=200)
+
+
+class PositionRearmRequest(PositionRiskRequest):
+    method: Literal["fixed", "percentage", "trailing"]
+    value: float = Field(..., gt=0)
+
+
+class ErrorDetail(BaseModel):
+    message: str
+    error_code: str
+    feature: str | None = None
+    cycle_id: str | None = None
+    correlation_id: str | None = None
+
+
+class ErrorResponse(BaseModel):
+    detail: ErrorDetail
+
+
 class QuoteResult(BaseModel):
     code: str
     asset_type: str

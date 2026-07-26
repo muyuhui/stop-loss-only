@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import api, { requestPriceRefresh } from '../api'
+import api, { refreshErrorMessage, requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
 import { useSettingsStore } from '../stores/settings'
 import { useMonitoringStore } from '../stores/monitoring'
@@ -19,8 +19,6 @@ const defaultPositionRiskLimitPct = ref(1)
 const saving = ref(false)
 const refreshing = ref(false)
 const advancedOpen = ref(false)
-const notificationState = ref(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
-const importPreview = ref(null)
 const request = useRequestState()
 const selectedPreset = computed(() => detectSettingsPreset(pollInterval.value, monitorInterval.value))
 
@@ -76,6 +74,7 @@ async function save() {
     portfolioEquity.value = previous.equity === null ? null : Number(previous.equity)
     portfolioRiskLimitPct.value = Number(previous.portfolioPct)
     defaultPositionRiskLimitPct.value = Number(previous.positionPct)
+    ElMessage.error('设置保存失败，已恢复原值。')
   } finally {
     saving.value = false
   }
@@ -88,24 +87,14 @@ async function refreshPrices() {
     const res = await requestPriceRefresh()
     const summary = summarizeRefresh(res.data)
     ElMessage[summary.type](summary.message)
+  } catch (error) {
+    ElMessage.error(refreshErrorMessage(error))
   } finally {
     refreshing.value = false
   }
 }
 
-async function requestBrowserNotifications() {
-  if (typeof Notification === 'undefined') { notificationState.value = 'unsupported'; return }
-  notificationState.value = await Notification.requestPermission()
-}
-
-async function previewImport(event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  const content = await file.arrayBuffer()
-  importPreview.value = (await api.post('/operations/import/preview', content, { headers: { 'Content-Type': 'application/octet-stream' } })).data
-}
-async function commitImport() { if (importPreview.value?.token) await api.post(`/operations/import/${importPreview.value.token}/commit`) }
-async function createBackup() { await api.post('/operations/backup'); ElMessage.success('Backup created') }
+async function createBackup() { await api.post('/operations/backup'); ElMessage.success('备份已创建并校验') }
 
 onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(() => {}) })
 </script>
@@ -164,16 +153,8 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
         <div><h2>运行时诊断</h2><p>页面轮询：{{ pollInterval }} 秒；后端监控：{{ monitorInterval }} 分钟；调度器：{{ monitoringStore.data?.scheduler_running ? '运行中' : '未运行或未知' }}。</p></div>
         <el-button plain :loading="monitoringStore.loading" @click="monitoringStore.refresh().catch(() => {})">刷新状态</el-button>
       </section>
-      <section class="manual-refresh" aria-label="Browser notifications">
-        <div><h2>Browser notifications</h2><p v-if="notificationState === 'default'">Permission is requested only when you enable it; in-app alerts remain available.</p><p v-else-if="notificationState === 'granted'">Browser delivery is enabled and remains best-effort.</p><p v-else>Browser notifications are unavailable or denied; use in-app alerts.</p></div>
-        <el-button plain :disabled="notificationState !== 'default'" @click="requestBrowserNotifications">Enable browser notifications</el-button>
-      </section>
-      <section class="manual-refresh" aria-label="Data portability">
-        <div><h2>CSV import and export</h2><input type="file" accept=".csv,text/csv" @change="previewImport" /><p v-if="importPreview">{{ importPreview.valid }} valid rows; review errors before committing.</p></div>
-        <div><el-button plain @click="commitImport" :disabled="!importPreview?.token">Commit import</el-button><a class="el-button el-button--default" href="/api/operations/export.csv">Export CSV</a></div>
-      </section>
-      <section class="manual-refresh" aria-label="Backup">
-        <div><h2>Backup</h2><p>Creates a verified backup in the controlled local directory. Restore remains a stopped-service command.</p></div><el-button plain @click="createBackup">Create backup</el-button>
+      <section class="manual-refresh" aria-label="数据库备份">
+        <div><h2>数据库备份</h2><p>在受控本地目录创建并校验备份；恢复操作需要先停止服务。</p></div><el-button plain @click="createBackup">创建备份</el-button>
       </section>
     </div>
   </section>

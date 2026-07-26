@@ -84,27 +84,23 @@ The system SHALL fetch the latest net asset value (NAV) for a fund using akshare
 - **THEN** 系统使用已记录的工作日退化规则、标记本轮为 degraded，并继续强制交易时段限制
 
 ### Requirement: Scheduled price monitoring
-系统 SHALL 按运行时设置的间隔对活动持仓执行价格监控，只将状态为 `live`、`delayed` 或符合资产策略的 `nav` 行情用于更新和止损判断，并记录周期结果。
+系统 SHALL 按运行时设置的间隔只对 legacy 权威模型中的活动持仓执行价格监控，只将状态为 `live`、`delayed` 或符合资产策略的 `nav` 行情用于更新和止损判断，并记录周期结果。Shadow position 数据 MUST NOT 成为第二写源或重复触发来源。
 
-#### Scenario: 收到新鲜可行动行情
-- **WHEN** 定时周期收到可行动行情
-- **THEN** 系统持久化行情元数据、更新兼容最新价并执行止损判断
-
-#### Scenario: 收到失败、未取价或过期行情
-- **WHEN** 行情状态为 `unpriced`、`stale` 或 `error`
-- **THEN** 系统保留最后成功事实、记录失败且不触发止损
-
-#### Scenario: 非交易时段触发调度任务
-- **WHEN** 日历明确市场休市
-- **THEN** 周期记录跳过或收盘状态，不伪装成实时成功
+#### Scenario: Shadow Position 映射活动持仓
+- **WHEN** 调度周期运行且数据库存在对应 shadow position
+- **THEN** 系统只更新和触发一次 legacy holding，并在提交后按现有 shadow 规则投影
 
 ### Requirement: Manual price refresh API
-系统 SHALL 提供手动刷新 API，返回周期 ID、成功/失败计数、稳定错误详情和仅包含已提交触发的结果，并支持按标的或持仓限定范围。
+系统 SHALL 提供全量和按标的或持仓限定范围的手动刷新 API，返回周期 ID、成功/失败计数、稳定错误详情和仅包含已提交触发的结果。两个入口 MUST 使用相同的错误映射，并保留预期业务 HTTP 状态。
 
-#### Scenario: 部分刷新成功
-- **WHEN** 一部分标的成功而另一部分失败
-- **THEN** API 返回部分成功、已提交事实和逐标的稳定错误，不回滚成功标的
+#### Scenario: 已有刷新正在运行
+- **WHEN** 全量或限定范围刷新无法在有界等待内取得刷新锁
+- **THEN** API 返回 HTTP 409、`refresh_busy`、周期 ID，且不得被转换为 HTTP 500
 
-#### Scenario: 没有活动持仓
-- **WHEN** 没有 `holding` 或 `triggered` 需要行情
-- **THEN** 响应成功，请求数和处理数均为零
+#### Scenario: 数据库忙
+- **WHEN** 全量或限定范围刷新无法在有界时间内建立数据库周期
+- **THEN** API 返回 HTTP 503、`database_busy` 和周期 ID
+
+#### Scenario: 未知刷新故障
+- **WHEN** 刷新发生未分类内部异常
+- **THEN** API 返回 HTTP 500、稳定错误码和关联 ID，不泄露行情响应或持仓数据

@@ -1,7 +1,7 @@
 # frontend-shell Specification
 
 ## Purpose
-TBD - created by archiving change refine-frontend-experience. Update Purpose after archive.
+定义稳定前端的视觉、响应式、可访问性、异步状态与路由可达性，确保每个可见命令都对应当前受支持工作流。
 ## Requirements
 ### Requirement: 统一且克制的视觉语言
 前端 SHALL 使用集中管理的语义化视觉变量统一页面背景、内容表面、文本层级、边框、圆角、阴影、间距和状态颜色，并限制风险颜色仅用于具有对应业务含义的内容。
@@ -85,9 +85,24 @@ TBD - created by archiving change refine-frontend-experience. Update Purpose aft
 - **THEN** 表单接近全屏、焦点可见且提交操作不被底部导航遮挡
 
 ### Requirement: Request privileged capabilities on demand
-前端 SHALL 只在明确用户操作后请求系统通知、创建备份或选择导入文件，并显示已授权、已拒绝、不支持和失败状态。
+前端 SHALL 只在明确用户操作后创建受支持的本地备份，并显示成功、失败和恢复边界。稳定界面 MUST NOT 请求尚无完整运行时实现的系统通知权限或导入文件。
 
-#### Scenario: Page loads with notifications unset
-- **WHEN** 用户首次打开设置且通知权限未决定
-- **THEN** 页面不得自动请求权限，只显示解释和启用按钮
+#### Scenario: 页面加载
+- **WHEN** 用户首次打开任一稳定页面
+- **THEN** 页面不请求系统通知权限、不打开文件选择器，也不触发备份
+
+#### Scenario: 明确创建备份
+- **WHEN** 用户在设置中明确选择创建备份
+- **THEN** 页面调用受支持备份操作并显示经过校验的结果或可操作错误
+
+### Requirement: 每个可见命令都必须指向受支持工作流
+前端 SHALL 只显示能够完成的稳定命令，且每个可见导航、列表行、告警操作和详情入口 MUST 匹配已注册路由与受支持后端操作。未完成组件可以保留在源码中供后续 change 使用，但 MUST NOT 从稳定 UI 可达。
+
+#### Scenario: 点击告警处置入口
+- **WHEN** 用户点击告警中的持仓处置入口
+- **THEN** 路由进入已注册的 legacy 持仓详情且页面可以加载对应记录
+
+#### Scenario: 检查稳定导航
+- **WHEN** 浏览器遍历所有稳定页面和可见操作
+- **THEN** 不出现未匹配路由、空白页面、不可达命令或未捕获控制台错误
 

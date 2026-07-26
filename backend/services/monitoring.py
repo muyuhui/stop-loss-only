@@ -264,8 +264,6 @@ def run_monitoring_cycle(
             project_after_legacy_commit(db)
             # This follows the alert commit deliberately: delivery work is
             # optional and may fail independently without rolling back facts.
-            from services.delivery import enqueue_committed_alerts
-            enqueue_committed_alerts(db, db.query(Alert).filter(Alert.cycle_id == cycle_id).all())
         except OperationalError as exc:
             db.rollback()
             error_code = ProviderErrorCode.DATABASE_BUSY.value if "locked" in str(exc).lower() or "busy" in str(exc).lower() else "database_error"

@@ -76,29 +76,15 @@
 - **THEN** 页面保留先前生效值，显示可理解的失败信息并允许重新提交
 
 ### Requirement: Group settings by operational responsibility
-设置界面 SHALL 将监控、行情与历史、通知占位以及数据与诊断按责任分组，并展示配置值、实际生效值和调度器状态。
+设置界面 SHALL 只展示能够在本稳定运行时实际应用并观察结果的页面轮询、价格监控、手动刷新、监控诊断和备份控制。界面 MUST NOT 展示未完成的 Webhook、浏览器系统通知、CSV 或 retention 配置，并 SHALL 使用一致中文文案说明配置值和实际生效状态。
 
-#### Scenario: Preset is applied
-- **WHEN** 用户选择及时、均衡或省资源预设
-- **THEN** 页面展示将要改变的实际字段并在保存成功后显示生效状态
+#### Scenario: 打开稳定设置页
+- **WHEN** 用户打开设置页面
+- **THEN** 页面只显示受支持且有完整后端行为的设置组，不出现英文占位或不可完成的扩展操作
 
-#### Scenario: Save fails
-- **WHEN** 后端拒绝或无法应用设置
-- **THEN** 页面保留用户输入、显示可定位错误且不声称已生效
-
-### Requirement: Configure extension settings safely
-系统 SHALL 分组读取和更新历史保留、通知、导入限制和诊断设置，校验跨字段关系并只在持久化和运行时应用都成功后报告成功。
-
-#### Scenario: Invalid retention value
-- **WHEN** 用户提交超出支持范围的保留天数
-- **THEN** 系统返回稳定字段错误且保留原运行时设置
-
-### Requirement: Configure channels without exposing secrets
-系统 SHALL 支持写入、替换、清除和禁用 Webhook 密钥，但读取设置 MUST NOT 返回完整密钥。
-
-#### Scenario: Disable webhook
-- **WHEN** 用户禁用 Webhook
-- **THEN** 后续告警不创建新投递尝试，已有站内告警不变
+#### Scenario: 保存监控间隔
+- **WHEN** 用户保存有效页面轮询和价格监控间隔
+- **THEN** 系统同时持久化并应用设置，页面显示实际生效值
 
 ### Requirement: Persist validated risk budget settings
 The system SHALL read and update optional manual portfolio equity, portfolio risk limit percentage, and default per-position risk limit percentage through the runtime settings API using Decimal-safe representations. It MUST validate the three fields together, preserve prior effective values on failure, and return the equity last-update time.

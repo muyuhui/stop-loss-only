@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -8,15 +9,17 @@ from sqlalchemy.pool import StaticPool
 from database import Base
 from models import CloseAllocation, Holding, MigrationAuthority, Position
 from services.shadow_projection import cutover, rebuild_shadow, reconcile_shadow
+from services.supported_runtime import UnsupportedRuntimeOperation
 
 
-def test_shadow_rebuild_reconciliation_and_cutover():
+def test_shadow_rebuild_reconciliation_and_cutover_is_disabled():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool); Base.metadata.create_all(engine)
     db = sessionmaker(bind=engine)()
     db.add(Holding(code="000001", name="测试", type="stock", buy_price=Decimal("10"), quantity=100, buy_date=date.today(), current_price=0, highest_price=10, stop_loss_method="fixed", stop_loss_value=9, stop_loss_price=9, status="holding")); db.commit()
     assert rebuild_shadow(db)["projected"] == 1 and reconcile_shadow(db)["matched"]
-    cutover(db)
-    assert db.get(MigrationAuthority, 1).stage == "new-authoritative" and db.query(Position).count() == 1
+    with pytest.raises(UnsupportedRuntimeOperation, match="cutover_not_supported"):
+        cutover(db)
+    assert db.get(MigrationAuthority, 1).stage == "legacy" and db.query(Position).count() == 1
 
 
 def test_closed_legacy_holding_becomes_close_allocation():

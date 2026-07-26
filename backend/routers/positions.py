@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Instrument, Position, PositionEvent, PositionQuote, StopRule
-from services.position_domain import acknowledge_risk, add_lot, close_position, create_position, rearm_position
+from services.position_domain import acknowledge_risk, activate_rule, add_lot, close_position, create_position, rearm_position
 from services.shadow_projection import authority
 
 
@@ -61,6 +61,11 @@ def open_position(data: dict, db: Session = Depends(get_db)):
     _new_only(db)
     try:
         row = create_position(db, code=data["code"], asset_type=data["asset_type"], name=data["name"], quantity=data["quantity"], unit_cost=data["unit_cost"], fees=data.get("fees", 0), taxes=data.get("taxes", 0))
+        if "stop_method" in data or "stop_value" in data:
+            activate_rule(
+                db, row, method=data["stop_method"], value=data["stop_value"],
+                reason="position_opened", reference_price=data["unit_cost"],
+            )
         db.commit()
     except (KeyError, ValueError) as exc:
         db.rollback(); raise HTTPException(422, str(exc)) from exc

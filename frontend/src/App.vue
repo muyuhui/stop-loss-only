@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElNotification } from 'element-plus'
-import { Bell, HomeFilled, List, Setting, WarningFilled } from '@element-plus/icons-vue'
+import { Bell, HomeFilled, List, Setting, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
 import api from './api'
 import { useAlertStore } from './stores/alert'
 import { useSettingsStore } from './stores/settings'
@@ -18,6 +18,7 @@ const alertPoller = createPoller(checkAlerts)
 const navigation = [
   { path: '/', label: '仪表盘', icon: HomeFilled },
   { path: '/holdings', label: '持仓', desktopLabel: '持仓管理', icon: List },
+  { path: '/planner', label: '规划', desktopLabel: '仓位规划', icon: TrendCharts },
   { path: '/alerts', label: '告警', desktopLabel: '告警历史', icon: WarningFilled },
   { path: '/settings', label: '设置', icon: Setting },
 ]

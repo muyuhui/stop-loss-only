@@ -22,6 +22,11 @@ const routes = [
     component: () => import('../views/Alerts.vue'),
   },
   {
+    path: '/planner',
+    name: 'RiskPlanner',
+    component: () => import('../views/RiskPlanner.vue'),
+  },
+  {
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/Settings.vue'),

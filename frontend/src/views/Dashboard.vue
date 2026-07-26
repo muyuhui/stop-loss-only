@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import api from '../api'
 import DataState from '../components/DataState.vue'
 import { useSettingsStore } from '../stores/settings'
+import { useRiskBudgetStore } from '../stores/riskBudget'
 import { dashboardRiskSummary, sortHoldingsByRisk } from '../utils/dashboard'
 import { formatAssetMoney, formatMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
@@ -21,6 +22,7 @@ const emptyDashboard = {
 const dashboard = ref(emptyDashboard)
 const monitoring = ref(null)
 const settingsStore = useSettingsStore()
+const riskBudgetStore = useRiskBudgetStore()
 const request = useRequestState()
 const router = useRouter()
 const poller = createPoller(load)
@@ -29,6 +31,7 @@ const risk = computed(() => dashboardRiskSummary(dashboard.value))
 const sortedHoldings = computed(() => sortHoldingsByRisk(dashboard.value.holdings))
 const isStale = computed(() => request.isStale(settingsStore.pollInterval))
 const monitoringSummary = computed(() => monitoringTrust(monitoring.value || {}))
+const budget = computed(() => riskBudgetStore.data)
 
 async function load() {
   request.begin()
@@ -36,6 +39,7 @@ async function load() {
     const [res, trustResponse] = await Promise.all([
       api.get('/dashboard'),
       api.get('/monitoring/status').catch(() => null),
+      riskBudgetStore.fetchBudget(),
     ])
     dashboard.value = res.data
     if (trustResponse) monitoring.value = trustResponse.data
@@ -105,6 +109,30 @@ onUnmounted(() => poller.stop())
         <span>估值成本覆盖：<strong>{{ dashboard.valuation_coverage_pct ?? '--' }}%</strong></span>
         <el-button link @click="router.push('/holdings')">查看风险持仓</el-button>
       </div>
+
+      <section class="panel risk-budget-panel" aria-labelledby="risk-budget-title">
+        <header class="panel__header">
+          <div><h2 id="risk-budget-title" class="panel__title">风险预算</h2><span class="section-hint">按所有开放仓位触及止损时的预计损失统计，与行情估值覆盖分开计算</span></div>
+          <el-button type="primary" link @click="router.push('/planner')">规划新仓位</el-button>
+        </header>
+        <div v-if="budget" class="risk-budget-grid">
+          <article><span>组合风险上限</span><strong class="number">{{ formatMoney(budget.portfolio_limit_amount) }}</strong><small>手工权益 {{ formatMoney(budget.portfolio_equity) }} × {{ budget.portfolio_risk_limit_pct }}%</small></article>
+          <article><span>已使用风险</span><strong class="number">{{ formatMoney(budget.used_risk_amount) }}</strong><small>覆盖 {{ budget.covered_position_count }}/{{ budget.open_position_count }} 个开放仓位</small></article>
+          <article>
+            <span>{{ budget.remaining_capacity === null ? '剩余风险容量未知' : '剩余风险容量' }}</span>
+            <strong class="number">{{ formatMoney(budget.remaining_capacity) }}</strong>
+            <small v-if="budget.status === 'incomplete'">存在没有有效止损规则的仓位，不能安全估算剩余额度</small>
+            <small v-else-if="budget.status === 'exceeded'">已超过上限 {{ formatMoney(budget.exceeded_amount) }}</small>
+            <small v-else>预算使用率 {{ budget.utilization_pct ?? '--' }}%</small>
+            <el-button v-if="budget.status === 'incomplete'" link @click="router.push('/holdings')">查看未覆盖仓位</el-button>
+          </article>
+        </div>
+        <div v-else class="risk-budget-unavailable">
+          <strong>{{ riskBudgetStore.error === 'new_authority_required' ? '完成仓位域切换后可使用风险预算' : '风险预算尚不可用' }}</strong>
+          <span>先在设置中维护组合权益与风险比例；未知值不会显示为零。</span>
+          <el-button link @click="router.push('/settings')">前往设置</el-button>
+        </div>
+      </section>
 
       <section class="risk-hero" :class="`risk-hero--${risk.level}`" aria-labelledby="risk-title">
         <div>
@@ -226,6 +254,11 @@ onUnmounted(() => poller.stop())
 .monitoring-trust--warning { border-left: 4px solid var(--color-warning); }
 .monitoring-trust--danger { border-left: 4px solid var(--color-danger); }
 .coverage-summary { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 10px 14px; color: var(--color-text-soft); background: var(--color-bg-soft); border-radius: 8px; font-size: 12px; }.coverage-summary strong { color: var(--color-text); }
+.risk-budget-grid { padding: 0 20px 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.risk-budget-grid article { padding: 14px; display: grid; gap: 5px; background: var(--color-surface-subtle); border-radius: 9px; }
+.risk-budget-grid article > span, .risk-budget-grid small { color: var(--color-text-soft); font-size: 12px; }
+.risk-budget-grid strong { font-size: 20px; }
+.risk-budget-unavailable { padding: 0 20px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--color-text-soft); font-size: 12px; }
 .risk-hero { padding: 24px 26px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: #f7fbf9; background: #29473e; border-radius: 16px; box-shadow: var(--shadow-panel); }
 .risk-hero--warning { background: #6b4b22; }
 .risk-hero--danger { background: #6b3430; }
@@ -283,5 +316,6 @@ onUnmounted(() => poller.stop())
   .today-alert { align-items: flex-start; flex-direction: column; }
   .monitoring-trust { align-items: flex-start; flex-direction: column; }
   .coverage-summary { align-items: flex-start; flex-direction: column; }
+  .risk-budget-grid { grid-template-columns: 1fr; }
 }
 </style>

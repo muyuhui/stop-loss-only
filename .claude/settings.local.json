@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openspec list *)",
+      "Bash(python -m pytest -p no:cacheprovider -q)"
+    ]
+  }
+}

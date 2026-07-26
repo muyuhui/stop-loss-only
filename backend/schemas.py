@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -96,6 +97,10 @@ class SettingsResponse(BaseModel):
     diagnostics_retention_days: int = 30
     import_max_bytes: int = 1048576
     import_max_rows: int = 1000
+    portfolio_equity: Decimal | None = None
+    portfolio_risk_limit_pct: Decimal = Decimal("5")
+    default_position_risk_limit_pct: Decimal = Decimal("1")
+    portfolio_equity_updated_at: datetime | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -110,6 +115,66 @@ class SettingsUpdate(BaseModel):
     diagnostics_retention_days: int | None = Field(None, ge=1, le=3650)
     import_max_bytes: int | None = Field(None, ge=1024, le=10485760)
     import_max_rows: int | None = Field(None, ge=1, le=100000)
+    portfolio_equity: Decimal | None = Field(None, gt=0)
+    portfolio_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
+    default_position_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
+
+
+StopMethodName = Literal["fixed", "percentage", "trailing"]
+
+
+class RiskPlanRequest(BaseModel):
+    code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    asset_type: Literal["stock", "fund"]
+    entry_price: Decimal = Field(..., gt=0)
+    stop_method: StopMethodName
+    stop_value: Decimal = Field(..., gt=0)
+    entry_fees: Decimal = Field(Decimal("0"), ge=0)
+    estimated_exit_fees: Decimal = Field(Decimal("0"), ge=0)
+    position_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
+
+
+class RiskBudgetResponse(BaseModel):
+    status: Literal["unavailable", "incomplete", "available", "exhausted", "exceeded"]
+    reason_code: str | None = None
+    portfolio_equity: str | None = None
+    portfolio_equity_updated_at: datetime | None = None
+    portfolio_risk_limit_pct: str
+    default_position_risk_limit_pct: str
+    portfolio_limit_amount: str | None = None
+    used_risk_amount: str
+    remaining_capacity: str | None = None
+    exceeded_amount: str
+    utilization_pct: str | None = None
+    open_position_count: int
+    covered_position_count: int
+    position_coverage_pct: str | None = None
+    total_open_remaining_cost: str
+    covered_remaining_cost: str
+    cost_coverage_pct: str | None = None
+    uncovered_position_ids: list[int] = Field(default_factory=list)
+
+
+class RiskPlanResponse(BaseModel):
+    status: Literal["ready", "refused"]
+    reason_code: str | None = None
+    normalized_input: dict
+    budget: RiskBudgetResponse
+    initial_stop_price: str | None = None
+    effective_position_risk_limit_pct: str | None = None
+    portfolio_limit_amount: str | None = None
+    position_limit_amount: str | None = None
+    remaining_portfolio_capacity: str | None = None
+    allowed_plan_risk: str | None = None
+    entry_fees: str
+    estimated_exit_fees: str
+    unit_price_risk: str | None = None
+    raw_quantity: str | None = None
+    quantity_increment: str
+    recommended_quantity: str | None = None
+    projected_loss_at_stop: str | None = None
+    required_capital: str | None = None
 
 
 class QuoteResult(BaseModel):

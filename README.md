@@ -144,6 +144,28 @@ single-worker local deployment.
 - The Positions and Alerts filters are stored in the URL, so the selected view is
   retained when moving between a list and a detail page.
 
+## Risk budget and position planner
+
+- Risk planning is available only after the position domain reaches
+  `new-authoritative`. It never writes to the legacy holdings path.
+- Portfolio equity is a manually maintained planning input, not a live broker
+  balance. Update it after deposits, withdrawals, or material account changes.
+- The default policy is a 5% portfolio stop-risk ceiling and a 1% per-position
+  ceiling. Position risk cannot exceed the portfolio percentage.
+- Covered portfolio risk is the sum of each open position's estimated loss at its
+  active stop: `max(0, remaining_cost + estimated_exit_cost -
+  stop_price * remaining_quantity)`. This calculation does not require a current
+  actionable quote; valuation coverage and stop-risk coverage are reported
+  separately.
+- If any open position lacks a calculable active stop, remaining risk capacity is
+  indeterminate and the planner does not recommend a quantity.
+- A plan uses the tighter of per-position risk and remaining portfolio capacity,
+  subtracts the user's fixed entry and exit fee estimates, and rounds down. Normal
+  A-share openings use 100-share lots; funds use up to six quantity decimals.
+- The planner reports required capital but cannot verify broker cash. A preview is
+  advisory, reserves no capacity, places no order, and creates no position. The
+  user must continue to a separate position form and explicitly submit it.
+
 ### v4 回滚
 
 1. 先运行 `./stop.ps1`，再使用 `./backup.ps1` 创建可恢复备份。

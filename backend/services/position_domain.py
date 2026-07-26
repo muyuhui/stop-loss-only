@@ -133,12 +133,16 @@ def close_position(db: Session, position: Position, *, quantity, close_price, fe
     return allocations
 
 
-def activate_rule(db: Session, position: Position, *, method: str, value, reason: str | None = None, clock=None) -> StopRule:
+def activate_rule(db: Session, position: Position, *, method: str, value, reason: str | None = None, reference_price=None, clock=None) -> StopRule:
     value = decimal_price(value)
     old = db.query(StopRule).filter(StopRule.position_id == position.id, StopRule.is_active.is_(True)).first()
     if old:
         old.is_active, old.deactivated_at = False, utc_now(clock)
-    high = Decimal(str(position.current_price or 0)) or (Decimal(str(position.remaining_cost)) / Decimal(str(position.remaining_quantity)))
+    high = (
+        decimal_price(reference_price)
+        if reference_price is not None
+        else Decimal(str(position.current_price or 0)) or (Decimal(str(position.remaining_cost)) / Decimal(str(position.remaining_quantity)))
+    )
     stop = StopLossEngine.calculate(high, high, method, value)
     version = (old.version if old else 0) + 1
     rule = StopRule(position_id=position.id, version=version, method=method, value=value, stop_price=stop, high_water_mark=high, activated_at=utc_now(clock))

@@ -13,6 +13,9 @@ const settingsStore = useSettingsStore()
 const monitoringStore = useMonitoringStore()
 const pollInterval = ref(30)
 const monitorInterval = ref(5)
+const portfolioEquity = ref(null)
+const portfolioRiskLimitPct = ref(5)
+const defaultPositionRiskLimitPct = ref(1)
 const saving = ref(false)
 const refreshing = ref(false)
 const advancedOpen = ref(false)
@@ -35,6 +38,9 @@ async function loadSettings() {
     if (!loaded) throw new Error('settings unavailable')
     pollInterval.value = settingsStore.pollInterval
     monitorInterval.value = settingsStore.monitorInterval
+    portfolioEquity.value = settingsStore.portfolioEquity === null ? null : Number(settingsStore.portfolioEquity)
+    portfolioRiskLimitPct.value = Number(settingsStore.portfolioRiskLimitPct)
+    defaultPositionRiskLimitPct.value = Number(settingsStore.defaultPositionRiskLimitPct)
     advancedOpen.value = selectedPreset.value === 'custom'
     request.succeed()
   } catch {
@@ -44,16 +50,32 @@ async function loadSettings() {
 
 async function save() {
   if (saving.value) return
-  const previous = { poll: settingsStore.pollInterval, monitor: settingsStore.monitorInterval }
+  const previous = {
+    poll: settingsStore.pollInterval, monitor: settingsStore.monitorInterval,
+    equity: settingsStore.portfolioEquity, portfolioPct: settingsStore.portfolioRiskLimitPct,
+    positionPct: settingsStore.defaultPositionRiskLimitPct,
+  }
   saving.value = true
   try {
-    await settingsStore.saveSettings({ poll_interval: pollInterval.value, monitor_interval: monitorInterval.value })
+    await settingsStore.saveSettings({
+      poll_interval: pollInterval.value,
+      monitor_interval: monitorInterval.value,
+      portfolio_equity: portfolioEquity.value,
+      portfolio_risk_limit_pct: portfolioRiskLimitPct.value,
+      default_position_risk_limit_pct: defaultPositionRiskLimitPct.value,
+    })
     pollInterval.value = settingsStore.pollInterval
     monitorInterval.value = settingsStore.monitorInterval
+    portfolioEquity.value = Number(settingsStore.portfolioEquity)
+    portfolioRiskLimitPct.value = Number(settingsStore.portfolioRiskLimitPct)
+    defaultPositionRiskLimitPct.value = Number(settingsStore.defaultPositionRiskLimitPct)
     ElMessage.success('设置已保存并生效')
   } catch {
     pollInterval.value = previous.poll
     monitorInterval.value = previous.monitor
+    portfolioEquity.value = previous.equity === null ? null : Number(previous.equity)
+    portfolioRiskLimitPct.value = Number(previous.portfolioPct)
+    defaultPositionRiskLimitPct.value = Number(previous.positionPct)
   } finally {
     saving.value = false
   }
@@ -96,6 +118,19 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
     <DataState v-else-if="request.error.value && !request.hasData.value" kind="error" title="暂时无法加载设置" :description="request.error.value" action-label="重新加载" @action="loadSettings" />
 
     <div v-else class="settings-stack">
+      <section class="panel" aria-labelledby="risk-policy-title">
+        <header class="panel__header"><div><h2 id="risk-policy-title" class="panel__title">风险预算</h2><span class="panel-hint">账户权益由你手工维护，不代表券商实时余额</span></div></header>
+        <div class="panel__body settings-body">
+          <div class="risk-settings-grid">
+            <label><span>组合权益</span><small>用于把百分比风险换算为金额；发生入金、出金或较大变化后请更新。</small><span class="number-field"><el-input-number v-model="portfolioEquity" :min="0.01" :precision="2" :controls="false" aria-label="手工维护的组合权益" /><em>元</em></span></label>
+            <label><span>组合风险上限</span><small>所有开放仓位触及止损时的预计总损失上限。</small><span class="number-field"><el-input-number v-model="portfolioRiskLimitPct" :min="0.01" :max="100" :precision="2" :controls="false" aria-label="组合风险上限百分比" /><em>%</em></span></label>
+            <label><span>默认单笔风险上限</span><small>规划新仓位时默认使用，可在单次规划中调低或调整。</small><span class="number-field"><el-input-number v-model="defaultPositionRiskLimitPct" :min="0.01" :max="portfolioRiskLimitPct || 100" :precision="2" :controls="false" aria-label="默认单笔风险上限百分比" /><em>%</em></span></label>
+          </div>
+          <p class="manual-equity-note">手工权益最近更新：{{ settingsStore.portfolioEquityUpdatedAt ? new Date(settingsStore.portfolioEquityUpdatedAt).toLocaleString('zh-CN', { hour12: false }) : '尚未设置' }}</p>
+          <div class="settings-actions"><el-button type="primary" :loading="saving" @click="save">保存风险与运行设置</el-button></div>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="frequency-title">
         <header class="panel__header"><div><h2 id="frequency-title" class="panel__title">刷新频率</h2><span class="panel-hint">当前：{{ selectedPreset === 'custom' ? '自定义' : SETTINGS_PRESETS.find(item => item.id === selectedPreset)?.label }}</span></div></header>
         <div class="panel__body settings-body">
@@ -160,14 +195,17 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
 .preset-card__meta { margin-top: 4px; color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .advanced-toggle { width: 100%; padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; color: var(--color-text); background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: 9px; cursor: pointer; font-weight: 650; }
 .advanced-settings { padding: 17px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; background: var(--color-surface-subtle); border-radius: 10px; }
-.advanced-settings label { display: grid; gap: 5px; }
-.advanced-settings label > span:first-child { font-weight: 650; }
-.advanced-settings small { color: var(--color-text-muted); font-size: 11px; }
+.advanced-settings label, .risk-settings-grid label { display: grid; gap: 5px; }
+.advanced-settings label > span:first-child, .risk-settings-grid label > span:first-child { font-weight: 650; }
+.advanced-settings small, .risk-settings-grid small { color: var(--color-text-muted); font-size: 11px; }
+.risk-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.risk-settings-grid :deep(.el-input-number) { width: 100%; }
+.manual-equity-note { margin: 0; color: var(--color-text-soft); font-size: 12px; }
 .number-field { margin-top: 5px; display: flex; align-items: center; gap: 8px; }
 .number-field em { color: var(--color-text-soft); font-size: 12px; font-style: normal; }
 .settings-actions { display: flex; justify-content: flex-end; }
 .manual-refresh { padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
 .manual-refresh h2 { margin: 0; font-size: 15px; }
 .manual-refresh p { margin: 5px 0 0; color: var(--color-text-soft); font-size: 12px; }
-@media (max-width: 767px) { .preset-grid, .advanced-settings { grid-template-columns: 1fr; } .preset-card { min-height: 110px; } .settings-actions .el-button { width: 100%; } .manual-refresh { align-items: stretch; flex-direction: column; } }
+@media (max-width: 767px) { .preset-grid, .advanced-settings, .risk-settings-grid { grid-template-columns: 1fr; } .preset-card { min-height: 110px; } .settings-actions .el-button { width: 100%; } .manual-refresh { align-items: stretch; flex-direction: column; } }
 </style>

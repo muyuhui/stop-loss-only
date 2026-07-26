@@ -5,12 +5,24 @@ import api from '../api'
 export const useSettingsStore = defineStore('settings', () => {
   const pollInterval = ref(30)
   const monitorInterval = ref(5)
+  const portfolioEquity = ref(null)
+  const portfolioRiskLimitPct = ref('5')
+  const defaultPositionRiskLimitPct = ref('1')
+  const portfolioEquityUpdatedAt = ref(null)
+
+  function apply(data) {
+    pollInterval.value = data.poll_interval || 30
+    monitorInterval.value = data.monitor_interval || 5
+    portfolioEquity.value = data.portfolio_equity
+    portfolioRiskLimitPct.value = data.portfolio_risk_limit_pct ?? '5'
+    defaultPositionRiskLimitPct.value = data.default_position_risk_limit_pct ?? '1'
+    portfolioEquityUpdatedAt.value = data.portfolio_equity_updated_at
+  }
 
   async function fetchSettings() {
     try {
       const res = await api.get('/settings')
-      pollInterval.value = res.data.poll_interval || 30
-      monitorInterval.value = res.data.monitor_interval || 5
+      apply(res.data)
       return true
     } catch {
       return false
@@ -19,9 +31,12 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function saveSettings(data) {
     const res = await api.put('/settings', data)
-    pollInterval.value = res.data.poll_interval
-    monitorInterval.value = res.data.monitor_interval
+    apply(res.data)
+    return res.data
   }
 
-  return { pollInterval, monitorInterval, fetchSettings, saveSettings }
+  return {
+    pollInterval, monitorInterval, portfolioEquity, portfolioRiskLimitPct,
+    defaultPositionRiskLimitPct, portfolioEquityUpdatedAt, fetchSettings, saveSettings,
+  }
 })

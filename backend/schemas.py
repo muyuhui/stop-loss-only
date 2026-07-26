@@ -223,6 +223,23 @@ class ErrorResponse(BaseModel):
     detail: ErrorDetail
 
 
+class RuntimeCapabilityMap(BaseModel):
+    legacy_holding_writes: bool
+    shadow_diagnostics: bool
+    risk_budget_reads: bool
+    risk_plan_previews: bool
+    risk_covered_position_creation: bool
+    position_lifecycle_writes: bool
+    csv_portability: bool
+    webhook_delivery: bool
+
+
+class RuntimeCapabilitiesResponse(BaseModel):
+    authority_stage: str
+    stable_runtime_supported: bool
+    capabilities: RuntimeCapabilityMap
+
+
 class QuoteResult(BaseModel):
     code: str
     asset_type: str
@@ -289,7 +306,10 @@ class MonitoringStatusResponse(BaseModel):
     next_run_at: datetime | None = None
     latest_cycle: MonitoringCycleResponse | None = None
     last_success_at: datetime | None = None
-    quote_coverage_pct: float
+    freshness: Literal["healthy", "overdue", "market_closed", "no_success"]
+    actionable_quote_coverage_pct: float | None = None
+    valuation_quote_coverage_pct: float | None = None
+    quote_coverage_pct: float | None = None
     overdue: bool
     reason_code: str | None = None
 

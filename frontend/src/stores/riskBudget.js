@@ -11,7 +11,9 @@ export const useRiskBudgetStore = defineStore('risk-budget', () => {
     loading.value = true
     error.value = null
     try {
-      data.value = (await api.get('/risk/budget')).data
+      data.value = (await api.get('/risk/budget', {
+        suppressErrorCodes: ['new_authority_required', 'feature_not_supported'],
+      })).data
       return true
     } catch (cause) {
       data.value = null

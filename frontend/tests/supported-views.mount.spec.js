@@ -79,6 +79,8 @@ describe('受支持视图真实挂载', () => {
     const clearInterval = vi.spyOn(globalThis, 'clearInterval')
     const { wrapper } = await mountAt(Dashboard, '/')
     expect(wrapper.text()).toContain('权威持仓')
+    expect(api.get.mock.calls.some(([path]) => path === '/risk/budget')).toBe(false)
+    expect(wrapper.text()).toContain('当前运行模式未启用风险预算')
     expect(setInterval).toHaveBeenCalledTimes(1)
 
     api.get.mockImplementation((path) => path === '/dashboard'

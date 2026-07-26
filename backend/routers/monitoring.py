@@ -13,6 +13,7 @@ from time_utils import as_utc
 
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
+VALUATION_STATES = ("live", "delayed", "close", "nav", "stale")
 
 
 def _payload(cycle: MonitoringCycle | None) -> dict | None:
@@ -29,29 +30,73 @@ def _payload(cycle: MonitoringCycle | None) -> dict | None:
     }
 
 
-@router.get("/status", response_model=MonitoringStatusResponse)
-def monitoring_status(db: Session = Depends(get_db)):
+def _coverage(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator * 100, 2) if denominator else 100.0
+
+
+def _status_payload(db: Session, *, now: datetime | None = None) -> dict:
     latest = db.query(MonitoringCycle).order_by(MonitoringCycle.started_at.desc(), MonitoringCycle.id.desc()).first()
     success = db.query(MonitoringCycle).filter(
         MonitoringCycle.status.in_(("success", "degraded")), MonitoringCycle.success_count > 0,
     ).order_by(MonitoringCycle.finished_at.desc()).first()
     active = db.query(Holding).filter(Holding.status.in_(("holding", "triggered")))
     total = active.count()
-    trusted = active.filter(Holding.is_actionable.is_(True)).count()
-    coverage = round(trusted / total * 100, 2) if total else 100.0
+    actionable_count = active.filter(Holding.is_actionable.is_(True)).count()
+    valuation_count = active.filter(
+        Holding.current_price.isnot(None), Holding.quote_state.in_(VALUATION_STATES),
+    ).count()
+    actionable_coverage = _coverage(actionable_count, total)
+    valuation_coverage = _coverage(valuation_count, total)
     setting = db.query(Setting).filter(Setting.key == "monitor_interval").first()
     interval = int(setting.value) if setting else 5
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     last_success = as_utc(success.finished_at) if success else None
-    overdue = last_success is None or now - last_success > timedelta(minutes=max(15, interval * 2))
+    allowance = timedelta(minutes=max(15, interval * 2))
+    latest_started = as_utc(latest.started_at) if latest else None
+    authoritative_closed = bool(
+        latest
+        and latest.kind == "scheduled"
+        and latest.status == "skipped"
+        and latest.error_code == "market_closed"
+        and latest.calendar_source == "authoritative"
+        and latest_started
+        and now - latest_started <= allowance
+    )
+    if authoritative_closed:
+        freshness = "market_closed"
+        overdue = False
+        reason = "market_closed"
+    elif last_success is None:
+        freshness = "no_success"
+        overdue = True
+        reason = "no_successful_cycle"
+    elif now - last_success > allowance:
+        freshness = "overdue"
+        overdue = True
+        reason = "monitoring_overdue"
+    else:
+        freshness = "healthy"
+        overdue = False
+        reason = latest.degraded_reason if latest else None
     job = scheduler.get_job("price_monitor")
     next_run = getattr(job, "next_run_time", None) if job else None
-    reason = "monitoring_overdue" if overdue and success else ("no_successful_cycle" if overdue else latest.degraded_reason if latest else None)
     return {
         "scheduler_running": scheduler.running, "next_run_at": next_run,
         "latest_cycle": _payload(latest), "last_success_at": last_success,
-        "quote_coverage_pct": coverage, "overdue": overdue, "reason_code": reason,
+        "freshness": freshness,
+        "actionable_quote_coverage_pct": actionable_coverage,
+        "valuation_quote_coverage_pct": valuation_coverage,
+        "quote_coverage_pct": actionable_coverage,
+        "overdue": overdue,
+        "reason_code": reason,
     }
+
+
+@router.get("/status", response_model=MonitoringStatusResponse)
+def monitoring_status(db: Session = Depends(get_db)):
+    return _status_payload(db)
 
 
 @router.get("/cycles", response_model=MonitoringCyclePage)

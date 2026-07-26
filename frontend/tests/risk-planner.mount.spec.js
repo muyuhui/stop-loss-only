@@ -1,7 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import api from '../src/api'
+import { useRuntimeCapabilitiesStore } from '../src/stores/runtimeCapabilities'
 import RiskPlanner from '../src/views/RiskPlanner.vue'
 
 vi.mock('../src/api', () => ({ default: { post: vi.fn() } }))
@@ -38,23 +40,42 @@ const readyPlan = {
   projected_loss_at_stop: '810', required_capital: '8005',
 }
 
-async function mounted() {
+async function mounted({ available = true } = {}) {
+  const pinia = createPinia()
+  useRuntimeCapabilitiesStore(pinia).apply({
+    authority_stage: available ? 'new-authoritative' : 'legacy',
+    stable_runtime_supported: !available,
+    capabilities: {
+      risk_plan_previews: available,
+      risk_covered_position_creation: available,
+    },
+  })
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/planner', component: RiskPlanner },
       { path: '/settings', component: { template: '<div />' } },
+      { path: '/holdings', component: { template: '<div />' } },
       { path: '/holdings/:id', component: { template: '<div />' } },
     ],
   })
   await router.push('/planner')
   await router.isReady()
-  return mount(RiskPlanner, { global: { plugins: [router], stubs } })
+  return mount(RiskPlanner, { global: { plugins: [pinia, router], stubs } })
 }
 
 beforeEach(() => vi.clearAllMocks())
 
 describe('risk planner workflow', () => {
+  it('renders an unavailable direct route without issuing planning writes', async () => {
+    const wrapper = await mounted({ available: false })
+    await wrapper.vm.preview()
+    await wrapper.vm.createPosition()
+    expect(wrapper.text()).toContain('当前运行模式未启用仓位规划')
+    expect(wrapper.text()).toContain('返回持仓管理')
+    expect(api.post).not.toHaveBeenCalled()
+  })
+
   it('previews without creating and requires a second explicit confirmation', async () => {
     api.post.mockResolvedValueOnce({ data: readyPlan }).mockResolvedValueOnce({ data: { id: 7 } })
     const wrapper = await mounted()

@@ -3,9 +3,11 @@ import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { formatDecimal, formatMoney } from '../utils/format'
 
 const router = useRouter()
+const runtimeCapabilities = useRuntimeCapabilitiesStore()
 const submitting = ref(false)
 const creating = ref(false)
 const result = ref(null)
@@ -17,6 +19,10 @@ const form = reactive({
 })
 
 const ready = computed(() => result.value?.status === 'ready')
+const planningAvailable = computed(() => (
+  runtimeCapabilities.isAvailable('risk_plan_previews')
+  && runtimeCapabilities.isAvailable('risk_covered_position_creation')
+))
 const reasonLabels = {
   portfolio_equity_unset: '请先在设置中维护组合权益。',
   portfolio_risk_coverage_incomplete: '存在没有有效止损规则的开放仓位，无法安全计算剩余风险容量。',
@@ -29,7 +35,7 @@ const reasonLabels = {
 }
 
 async function preview() {
-  if (submitting.value) return
+  if (!planningAvailable.value || submitting.value) return
   submitting.value = true
   reviewOpen.value = false
   try {
@@ -44,7 +50,7 @@ async function preview() {
 }
 
 async function createPosition() {
-  if (!ready.value || creating.value) return
+  if (!planningAvailable.value || !ready.value || creating.value) return
   creating.value = true
   const normalized = result.value.normalized_input
   try {
@@ -71,10 +77,16 @@ async function createPosition() {
   <section aria-labelledby="planner-title">
     <div class="page-heading">
       <div><h1 id="planner-title" class="page-title">仓位规划器</h1><p class="page-subtitle">先确定最多愿意亏多少，再决定买入数量</p></div>
-      <el-button @click="router.push('/settings')">风险设置</el-button>
+      <el-button v-if="planningAvailable" @click="router.push('/settings')">风险设置</el-button>
     </div>
 
-    <div class="planner-layout">
+    <section v-if="!planningAvailable" class="panel planner-unavailable" role="status">
+      <strong>当前运行模式未启用仓位规划</strong>
+      <p>{{ runtimeCapabilities.error || '稳定版本继续支持原有持仓与止损流程，规划器不会发起风险试算或仓位写入。' }}</p>
+      <el-button type="primary" @click="router.push('/holdings')">返回持仓管理</el-button>
+    </section>
+
+    <div v-else class="planner-layout">
       <section class="panel">
         <header class="panel__header"><div><h2 class="panel__title">计划参数</h2><span class="planner-hint">试算不会创建仓位或提交订单</span></div></header>
         <el-form class="planner-form" label-position="top" @submit.prevent="preview">
@@ -124,7 +136,7 @@ async function createPosition() {
       </section>
     </div>
 
-    <section v-if="reviewOpen && ready" class="panel confirm-panel" aria-labelledby="confirm-title">
+    <section v-if="planningAvailable && reviewOpen && ready" class="panel confirm-panel" aria-labelledby="confirm-title">
       <header class="panel__header"><div><h2 id="confirm-title" class="panel__title">确认创建仓位</h2><span class="planner-hint">这是独立业务提交；请再次检查最新资金与风险状态</span></div></header>
       <div class="confirm-body">
         <p>{{ result.normalized_input.name }}（{{ result.normalized_input.code }}），{{ result.recommended_quantity }} {{ form.asset_type === 'stock' ? '股' : '份' }}，成本价 {{ result.normalized_input.entry_price }}，止损 {{ result.initial_stop_price }}。</p>
@@ -137,6 +149,8 @@ async function createPosition() {
 
 <style scoped>
 .planner-layout { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(360px, .95fr); gap: 16px; align-items: start; }
+.planner-unavailable { padding: 24px; display: grid; justify-items: start; gap: 12px; }
+.planner-unavailable p { margin: 0; color: var(--color-text-soft); line-height: 1.7; }
 .planner-hint { color: var(--color-text-muted); font-size: 11px; }
 .planner-form, .result-body, .result-empty { padding: 0 20px 20px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }

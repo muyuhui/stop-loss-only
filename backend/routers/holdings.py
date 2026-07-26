@@ -8,13 +8,14 @@ from services.price_history import HistoryUnavailable, holding_history
 from services.presentation import holding_payload, position_holding_payload
 from services.shadow_projection import authority, project_after_legacy_commit
 from services.stop_loss import StopLossEngine, to_decimal
+from services.supported_runtime import capability_available
 
 
 router = APIRouter(prefix="/holdings", tags=["holdings"])
 
 
 def _legacy_writable(db: Session) -> None:
-    if authority(db).stage == "new-authoritative":
+    if not capability_available(authority(db).stage, "legacy_holding_writes"):
         raise HTTPException(status_code=409, detail={"error_code": "legacy_compatibility_read_only"})
 
 

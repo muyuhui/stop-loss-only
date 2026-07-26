@@ -16,13 +16,27 @@ async function clickVisibleNav(page, label) {
 
 test('legacy 创建、刷新触发、告警查看与手动平仓', async ({ page }, testInfo) => {
   const browserErrors = []
+  const unsupportedRiskRequests = []
   page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`))
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`)
   })
+  page.on('request', (request) => {
+    if (/\/api\/risk\/|\/api\/positions(?:\/|$)/.test(request.url())) {
+      unsupportedRiskRequests.push(`${request.method()} ${request.url()}`)
+    }
+  })
 
   const holdingName = `浏览器验证-${testInfo.project.name}`
+  await page.goto('/planner')
+  await expect(page.getByRole('heading', { name: '仓位规划器' })).toBeVisible()
+  await expect(page.getByText('当前运行模式未启用仓位规划')).toBeVisible()
+  await expect(page.locator('a[href="/planner"]:visible')).toHaveCount(0)
+  await expect(page.locator('.el-message--error')).toHaveCount(0)
+  expect(unsupportedRiskRequests).toEqual([])
+
   await page.goto('/holdings')
+  await expect(page.locator('a[href="/planner"]:visible')).toHaveCount(0)
   await page.getByRole('button', { name: '新增持仓' }).first().click()
   const dialog = page.getByRole('dialog')
   await dialog.getByPlaceholder('例如 000001').fill('000001')
@@ -66,5 +80,7 @@ test('legacy 创建、刷新触发、告警查看与手动平仓', async ({ page
   await closeButton.click()
   await page.getByRole('button', { name: '确认平仓', exact: true }).last().click()
   await expect(page.getByText('已关闭').first()).toBeVisible()
+  expect(unsupportedRiskRequests).toEqual([])
+  await expect(page.locator('.el-message--error')).toHaveCount(0)
   await assertPageIntegrity(page, browserErrors)
 })

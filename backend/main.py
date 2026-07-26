@@ -8,7 +8,7 @@ from sqlalchemy import text
 from config import config
 from database import SessionLocal, engine
 from migrations import LATEST_SCHEMA_VERSION, current_version
-from routers import alerts, dashboard, holdings, monitoring, operations, positions, prices, risk, settings
+from routers import alerts, dashboard, holdings, monitoring, operations, positions, prices, risk, runtime, settings
 from scheduler import scheduler, start_scheduler, stop_scheduler
 from routers.settings import get_effective_settings
 from observability import RequestLoggingMiddleware, configure_logging
@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
         CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
         allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
     )
-    for router in (holdings.router, positions.router, prices.router, alerts.router, dashboard.router, settings.router, monitoring.router, operations.router, risk.router):
+    for router in (holdings.router, positions.router, prices.router, alerts.router, dashboard.router, settings.router, monitoring.router, operations.router, risk.router, runtime.router):
         application.include_router(router, prefix="/api")
 
     @application.get("/api/health/live")

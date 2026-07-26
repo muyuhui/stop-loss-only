@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def test_invalid_backup_never_replaces_active_database(tmp_path: Path, failure: 
     with pytest.raises((ValueError, sqlite3.DatabaseError)):
         restore_database(backup, manifest, target)
 
+    assert not target.with_suffix(".restore.tmp").exists()
     with sqlite3.connect(target) as conn:
         assert conn.execute("SELECT value FROM evidence").fetchone()[0] == "original"
 
@@ -68,9 +70,60 @@ def test_restore_preserves_recovery_point_and_new_authority_stays_not_ready(tmp_
     restore_database(backup, manifest, target)
     recovery = target.with_suffix(".recovery.db")
     assert recovery.exists()
+    assert not target.with_suffix(".restore.tmp").exists()
     with sqlite3.connect(recovery) as conn:
         assert conn.execute("SELECT value FROM evidence").fetchone()[0] == "original"
     with sqlite3.connect(target) as conn:
         stage = conn.execute("SELECT stage FROM migration_authority WHERE id=1").fetchone()[0]
     supported, detail = authority_readiness(stage)
     assert supported is False and detail["error_code"] == "new_authority_not_supported"
+
+
+def test_restore_rolls_back_and_removes_working_copy_when_replacement_fails(tmp_path: Path, monkeypatch):
+    source = tmp_path / "source.db"
+    target = tmp_path / "target.db"
+    url = _database(source)
+    _database(target)
+    backup, manifest = backup_database(url, tmp_path / "backups")
+    real_copy = shutil.copy2
+    temporary = target.with_suffix(".restore.tmp")
+
+    def fail_after_target_copy(source_path, destination_path, *args, **kwargs):
+        result = real_copy(source_path, destination_path, *args, **kwargs)
+        if Path(source_path) == temporary and Path(destination_path) == target:
+            raise OSError("injected replacement failure")
+        return result
+
+    monkeypatch.setattr("migrations.shutil.copy2", fail_after_target_copy)
+
+    with pytest.raises(OSError, match="injected replacement failure"):
+        restore_database(backup, manifest, target)
+
+    assert not temporary.exists()
+    assert target.with_suffix(".recovery.db").exists()
+    with sqlite3.connect(target) as conn:
+        assert conn.execute("SELECT value FROM evidence").fetchone()[0] == "original"
+
+
+def test_restore_reports_stable_cleanup_failure_without_deleting_recovery_assets(tmp_path: Path, monkeypatch):
+    source = tmp_path / "source.db"
+    target = tmp_path / "target.db"
+    url = _database(source)
+    _database(target)
+    backup, manifest = backup_database(url, tmp_path / "backups")
+    temporary = target.with_suffix(".restore.tmp")
+    real_unlink = Path.unlink
+
+    def deny_working_copy_cleanup(path, *args, **kwargs):
+        if path == temporary:
+            raise PermissionError("sensitive operating-system detail")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", deny_working_copy_cleanup)
+
+    with pytest.raises(RuntimeError, match="restore_working_copy_cleanup_failed"):
+        restore_database(backup, manifest, target)
+
+    assert target.exists()
+    assert target.with_suffix(".recovery.db").exists()
+    assert temporary.exists()

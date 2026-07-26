@@ -1,27 +1,32 @@
 <script setup>
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElNotification } from 'element-plus'
 import { Bell, HomeFilled, List, Setting, TrendCharts, WarningFilled } from '@element-plus/icons-vue'
 import api from './api'
 import { useAlertStore } from './stores/alert'
 import { useSettingsStore } from './stores/settings'
+import { useRuntimeCapabilitiesStore } from './stores/runtimeCapabilities'
 import { createPoller } from './utils/poller'
 
 const router = useRouter()
 const route = useRoute()
 const alertStore = useAlertStore()
 const settingsStore = useSettingsStore()
+const runtimeCapabilities = useRuntimeCapabilitiesStore()
 const lastAlertId = ref(0)
 const initialized = ref(false)
 const alertPoller = createPoller(checkAlerts)
-const navigation = [
+const navigationItems = [
   { path: '/', label: '仪表盘', icon: HomeFilled },
   { path: '/holdings', label: '持仓', desktopLabel: '持仓管理', icon: List },
-  { path: '/planner', label: '规划', desktopLabel: '仓位规划', icon: TrendCharts },
+  { path: '/planner', label: '规划', desktopLabel: '仓位规划', icon: TrendCharts, capability: 'risk_plan_previews' },
   { path: '/alerts', label: '告警', desktopLabel: '告警历史', icon: WarningFilled },
   { path: '/settings', label: '设置', icon: Setting },
 ]
+const navigation = computed(() => navigationItems.filter(
+  item => !item.capability || runtimeCapabilities.isAvailable(item.capability)
+))
 
 function isActive(path) {
   return path === '/' ? route.path === '/' : route.path.startsWith(path)
@@ -55,6 +60,7 @@ function startAlertPolling() {
 }
 
 onMounted(async () => {
+  await runtimeCapabilities.fetchCapabilities()
   await settingsStore.fetchSettings()
   alertStore.fetchUnreadCount()
   await checkAlerts()

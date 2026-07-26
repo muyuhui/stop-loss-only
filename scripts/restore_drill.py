@@ -30,8 +30,10 @@ def main() -> int:
     backup, manifest = backup_database(f"sqlite:///{source.as_posix()}", work / "backups")
     target = work / "target.db"
     restore_database(backup, manifest, target)
+    assert not target.with_suffix(".restore.tmp").exists()
     with sqlite3.connect(target) as conn:
         assert conn.execute("SELECT value FROM evidence").fetchone()[0] == "verified"
+    assert not target.with_suffix(".restore.tmp").exists()
 
     invalid = work / "backups" / "invalid.json"
     data = json.loads(manifest.read_text(encoding="utf-8"))

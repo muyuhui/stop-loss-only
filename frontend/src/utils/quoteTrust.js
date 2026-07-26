@@ -34,9 +34,18 @@ export function quoteTrust(item = {}, now = Date.now()) {
 
 export function monitoringTrust(status = {}) {
   if (!status.latest_cycle) return { tone: 'warning', title: '尚无监控周期', detail: '请手动刷新一次行情以建立可信基线。' }
-  if (status.overdue) return { tone: 'danger', title: '监控已过期', detail: `行情覆盖 ${Number(status.quote_coverage_pct || 0).toFixed(0)}% · ${status.reason_code || 'monitoring_overdue'}` }
-  if (['partial', 'failed', 'degraded'].includes(status.latest_cycle.status)) {
-    return { tone: 'warning', title: '监控存在降级', detail: `最近周期 ${status.latest_cycle.status} · 行情覆盖 ${Number(status.quote_coverage_pct || 0).toFixed(0)}%` }
+  const coverage = status.actionable_quote_coverage_pct ?? status.quote_coverage_pct
+  const coverageText = coverage === null || coverage === undefined ? '--' : `${Number(coverage).toFixed(0)}%`
+  if (status.freshness === 'market_closed') {
+    const lastSuccess = status.last_success_at ? ` · 最近可操作行情 ${quoteAge(status.last_success_at)}` : ''
+    return { tone: 'muted', title: '市场休市', detail: `可操作行情覆盖 ${coverageText}${lastSuccess}` }
   }
-  return { tone: 'success', title: '监控可信', detail: `行情覆盖 ${Number(status.quote_coverage_pct || 0).toFixed(0)}%` }
+  if (status.freshness === 'no_success') {
+    return { tone: 'warning', title: '尚无成功行情周期', detail: `可操作行情覆盖 ${coverageText}` }
+  }
+  if (status.overdue || status.freshness === 'overdue') return { tone: 'danger', title: '监控已过期', detail: `可操作行情覆盖 ${coverageText} · ${status.reason_code || 'monitoring_overdue'}` }
+  if (['partial', 'failed', 'degraded'].includes(status.latest_cycle.status)) {
+    return { tone: 'warning', title: '监控存在降级', detail: `最近周期 ${status.latest_cycle.status} · 可操作行情覆盖 ${coverageText}` }
+  }
+  return { tone: 'success', title: '监控可信', detail: `可操作行情覆盖 ${coverageText}` }
 }

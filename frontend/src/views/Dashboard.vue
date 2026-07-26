@@ -5,6 +5,7 @@ import api from '../api'
 import DataState from '../components/DataState.vue'
 import { useSettingsStore } from '../stores/settings'
 import { useRiskBudgetStore } from '../stores/riskBudget'
+import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { dashboardRiskSummary, sortHoldingsByRisk } from '../utils/dashboard'
 import { formatAssetMoney, formatMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
@@ -23,6 +24,7 @@ const dashboard = ref(emptyDashboard)
 const monitoring = ref(null)
 const settingsStore = useSettingsStore()
 const riskBudgetStore = useRiskBudgetStore()
+const runtimeCapabilities = useRuntimeCapabilitiesStore()
 const request = useRequestState()
 const router = useRouter()
 const poller = createPoller(load)
@@ -32,14 +34,28 @@ const sortedHoldings = computed(() => sortHoldingsByRisk(dashboard.value.holding
 const isStale = computed(() => request.isStale(settingsStore.pollInterval))
 const monitoringSummary = computed(() => monitoringTrust(monitoring.value || {}))
 const budget = computed(() => riskBudgetStore.data)
+const riskPlanningAvailable = computed(() => runtimeCapabilities.isAvailable('risk_budget_reads'))
+const actionableCoverage = computed(() => (
+  monitoring.value?.actionable_quote_coverage_pct
+  ?? dashboard.value.actionable_position_coverage_pct
+  ?? null
+))
+const valuationCoverage = computed(() => (
+  monitoring.value?.valuation_quote_coverage_pct
+  ?? dashboard.value.valuation_coverage_pct
+  ?? null
+))
 
 async function load() {
   request.begin()
   try {
+    const budgetRequest = riskPlanningAvailable.value
+      ? riskBudgetStore.fetchBudget()
+      : Promise.resolve(false)
     const [res, trustResponse] = await Promise.all([
       api.get('/dashboard'),
       api.get('/monitoring/status').catch(() => null),
-      riskBudgetStore.fetchBudget(),
+      budgetRequest,
     ])
     dashboard.value = res.data
     if (trustResponse) monitoring.value = trustResponse.data
@@ -105,15 +121,15 @@ onUnmounted(() => poller.stop())
       </div>
 
       <div class="coverage-summary" aria-label="行情覆盖率">
-        <span>可行动持仓覆盖：<strong>{{ dashboard.actionable_position_coverage_pct ?? '--' }}%</strong></span>
-        <span>估值成本覆盖：<strong>{{ dashboard.valuation_coverage_pct ?? '--' }}%</strong></span>
+        <span>可操作行情覆盖：<strong>{{ actionableCoverage === null ? '--' : `${actionableCoverage}%` }}</strong></span>
+        <span>估值行情覆盖：<strong>{{ valuationCoverage === null ? '--' : `${valuationCoverage}%` }}</strong></span>
         <el-button link @click="router.push('/holdings')">查看风险持仓</el-button>
       </div>
 
       <section class="panel risk-budget-panel" aria-labelledby="risk-budget-title">
         <header class="panel__header">
           <div><h2 id="risk-budget-title" class="panel__title">风险预算</h2><span class="section-hint">按所有开放仓位触及止损时的预计损失统计，与行情估值覆盖分开计算</span></div>
-          <el-button type="primary" link @click="router.push('/planner')">规划新仓位</el-button>
+          <el-button v-if="runtimeCapabilities.isAvailable('risk_plan_previews')" type="primary" link @click="router.push('/planner')">规划新仓位</el-button>
         </header>
         <div v-if="budget" class="risk-budget-grid">
           <article><span>组合风险上限</span><strong class="number">{{ formatMoney(budget.portfolio_limit_amount) }}</strong><small>手工权益 {{ formatMoney(budget.portfolio_equity) }} × {{ budget.portfolio_risk_limit_pct }}%</small></article>
@@ -128,9 +144,11 @@ onUnmounted(() => poller.stop())
           </article>
         </div>
         <div v-else class="risk-budget-unavailable">
-          <strong>{{ riskBudgetStore.error === 'new_authority_required' ? '完成仓位域切换后可使用风险预算' : '风险预算尚不可用' }}</strong>
-          <span>先在设置中维护组合权益与风险比例；未知值不会显示为零。</span>
-          <el-button link @click="router.push('/settings')">前往设置</el-button>
+          <strong>{{ riskPlanningAvailable ? '风险预算暂时不可用' : '当前运行模式未启用风险预算' }}</strong>
+          <span v-if="runtimeCapabilities.error">{{ runtimeCapabilities.error }}</span>
+          <span v-else-if="!riskPlanningAvailable">当前稳定版本继续使用原有持仓与止损流程，不会请求尚未启用的风险接口。</span>
+          <span v-else>请稍后重试；未知值不会显示为零。</span>
+          <el-button v-if="riskPlanningAvailable" link @click="router.push('/settings')">前往设置</el-button>
         </div>
       </section>
 
@@ -253,6 +271,7 @@ onUnmounted(() => poller.stop())
 .monitoring-trust--success { border-left: 4px solid var(--color-success); }
 .monitoring-trust--warning { border-left: 4px solid var(--color-warning); }
 .monitoring-trust--danger { border-left: 4px solid var(--color-danger); }
+.monitoring-trust--muted { border-left: 4px solid var(--color-text-muted); }
 .coverage-summary { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 10px 14px; color: var(--color-text-soft); background: var(--color-bg-soft); border-radius: 8px; font-size: 12px; }.coverage-summary strong { color: var(--color-text); }
 .risk-budget-grid { padding: 0 20px 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .risk-budget-grid article { padding: 14px; display: grid; gap: 5px; background: var(--color-surface-subtle); border-radius: 9px; }

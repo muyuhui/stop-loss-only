@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -13,6 +13,7 @@ from models import Alert, Holding, MonitoringCycle
 from services.fixture_adapters import FixtureCalendar
 from services.market_clock import MARKET_TZ
 from services.monitoring import MonitoringDatabaseBusy, _refresh_lock, _trigger_key, run_monitoring_cycle
+from routers.monitoring import _status_payload
 from services.quote_contracts import MarketSession
 
 
@@ -179,3 +180,57 @@ def test_scoped_refresh_only_touches_requested_holding(tmp_path):
     assert result["requested"] == 1 and result["processed"] == 1
     assert db.get(Holding, first.id).quote_state == "live"
     assert db.get(Holding, second.id).quote_state == "unpriced"
+
+
+def test_authoritative_closed_cycle_is_neutral_and_separates_coverage(tmp_path):
+    _, factory = file_factory(tmp_path)
+    db = factory()
+    item = make_holding()
+    item.current_price = Decimal("9.5000")
+    item.quote_state = "close"
+    item.is_actionable = False
+    db.add(item)
+    now = datetime(2026, 7, 26, 2, 0, tzinfo=timezone.utc)
+    db.add(MonitoringCycle(
+        id="closed-cycle", kind="scheduled", scope="all", status="skipped",
+        started_at=(now - timedelta(minutes=1)).replace(tzinfo=None),
+        finished_at=now.replace(tzinfo=None), requested_count=0, success_count=0,
+        skipped_count=0, failed_count=0, triggered_count=0, coverage_pct=100,
+        calendar_source="authoritative", error_code="market_closed",
+    ))
+    db.commit()
+
+    status = _status_payload(db, now=now)
+
+    assert status["freshness"] == "market_closed"
+    assert status["overdue"] is False
+    assert status["reason_code"] == "market_closed"
+    assert status["actionable_quote_coverage_pct"] == 0
+    assert status["quote_coverage_pct"] == 0
+    assert status["valuation_quote_coverage_pct"] == 100
+
+
+def test_open_period_old_success_is_overdue(tmp_path):
+    _, factory = file_factory(tmp_path)
+    db = factory()
+    item = make_holding()
+    item.current_price = Decimal("9.5000")
+    item.quote_state = "live"
+    item.is_actionable = True
+    db.add(item)
+    now = datetime(2026, 7, 27, 3, 0, tzinfo=timezone.utc)
+    old = now - timedelta(hours=1)
+    db.add(MonitoringCycle(
+        id="old-success", kind="scheduled", scope="all", status="success",
+        started_at=old.replace(tzinfo=None), finished_at=old.replace(tzinfo=None),
+        requested_count=1, success_count=1, skipped_count=0, failed_count=0,
+        triggered_count=0, coverage_pct=100, calendar_source="authoritative",
+    ))
+    db.commit()
+
+    status = _status_payload(db, now=now)
+
+    assert status["freshness"] == "overdue"
+    assert status["overdue"] is True
+    assert status["actionable_quote_coverage_pct"] == 100
+    assert status["valuation_quote_coverage_pct"] == 100

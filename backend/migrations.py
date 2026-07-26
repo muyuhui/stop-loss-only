@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -144,7 +145,7 @@ def restore_database(backup: Path, manifest: Path, target: Path) -> None:
     if hashlib.sha256(backup.read_bytes()).hexdigest() != data["sha256"]:
         raise ValueError("备份校验和不匹配")
     if int(data.get("schema_version", 0)) > LATEST_SCHEMA_VERSION: raise ValueError("backup_schema_unsupported")
-    with sqlite3.connect(backup) as conn:
+    with closing(sqlite3.connect(backup)) as conn:
         if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise ValueError("备份完整性校验失败")
     recovery = target.with_suffix(".recovery.db")
@@ -152,9 +153,14 @@ def restore_database(backup: Path, manifest: Path, target: Path) -> None:
     temporary = target.with_suffix(".restore.tmp")
     try:
         shutil.copy2(backup, temporary)
-        with sqlite3.connect(temporary) as conn:
+        with closing(sqlite3.connect(temporary)) as conn:
             if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok": raise ValueError("restore_readiness_failed")
         shutil.copy2(temporary, target)
     except Exception:
         if recovery.exists(): shutil.copy2(recovery, target)
         raise
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as exc:
+            raise RuntimeError("restore_working_copy_cleanup_failed") from exc

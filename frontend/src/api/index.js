@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { shouldSuppressGlobalError } from '../utils/requestPolicy'
 
 const api = axios.create({
   baseURL: '/api',
@@ -32,6 +33,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const detail = error.response?.data?.detail
+    if (shouldSuppressGlobalError(error)) {
+      return Promise.reject(error)
+    }
     let message = '请求失败'
     if (Array.isArray(detail)) {
       message = detail.map(d => d.msg).join('；')

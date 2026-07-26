@@ -7,7 +7,7 @@ from database import get_db
 from models import Instrument, Position, PositionEvent, PositionQuote, StopRule
 from services.position_domain import activate_rule, create_position
 from services.shadow_projection import authority
-from services.supported_runtime import feature_not_supported
+from services.supported_runtime import capability_available, feature_not_supported
 
 
 router = APIRouter(prefix="/positions", tags=["positions"])
@@ -41,7 +41,7 @@ def _payload(db: Session, row: Position):
 
 
 def _new_only(db: Session):
-    if authority(db).stage != "new-authoritative":
+    if not capability_available(authority(db).stage, "risk_covered_position_creation"):
         raise HTTPException(409, {"error_code": "new_authority_required"})
 
 

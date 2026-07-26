@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -12,9 +14,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import db_admin
+import main
 from database import Base, get_db
 from models import ChannelMetadata, Holding, ImportAudit, MigrationAuthority, Position, Setting
-from routers import dashboard, operations, positions, prices, settings
+from routers import dashboard, operations, positions, prices, runtime, settings
 from services.monitoring import MonitoringDatabaseBusy
 from services.shadow_projection import begin_shadow_read
 
@@ -25,7 +28,7 @@ def runtime_api():
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False)
     app = FastAPI()
-    for router in (positions.router, prices.router, dashboard.router, settings.router, operations.router):
+    for router in (positions.router, prices.router, dashboard.router, settings.router, operations.router, runtime.router):
         app.include_router(router, prefix="/api")
 
     def override_db():
@@ -39,6 +42,33 @@ def runtime_api():
     return TestClient(app, raise_server_exceptions=False), factory
 
 
+@contextmanager
+def _real_application(monkeypatch, stage: str):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False)
+    db = factory()
+    db.add(MigrationAuthority(id=1, stage=stage, shadow_dirty=False))
+    db.commit()
+    db.close()
+    monkeypatch.setattr(main, "engine", engine)
+    monkeypatch.setattr(main, "SessionLocal", factory)
+    monkeypatch.setattr(main, "current_version", lambda _: main.LATEST_SCHEMA_VERSION)
+    monkeypatch.setattr(main, "config", SimpleNamespace(scheduler_enabled=False))
+    app = main.create_app()
+
+    def override_db():
+        db = factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_db
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
+
+
 def _holding() -> Holding:
     return Holding(
         code="000001", name="权威持仓", type="stock", buy_price=Decimal("10"), quantity=100,
@@ -46,6 +76,78 @@ def _holding() -> Holding:
         stop_loss_method="fixed", stop_loss_value=Decimal("9"), stop_loss_price=Decimal("9"),
         status="holding", quote_state="live", is_actionable=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("stage", "stable", "legacy_writes", "shadow_diagnostics", "risk_reads"),
+    [
+        ("legacy", True, True, False, False),
+        ("shadow-read", True, True, True, False),
+        ("new-authoritative", False, False, False, True),
+    ],
+)
+def test_runtime_capabilities_are_stage_aware(
+    runtime_api, stage, stable, legacy_writes, shadow_diagnostics, risk_reads
+):
+    client, factory = runtime_api
+    db = factory()
+    db.add(MigrationAuthority(id=1, stage=stage, shadow_dirty=False))
+    db.commit()
+    db.close()
+
+    response = client.get("/api/runtime/capabilities")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "authority_stage": stage,
+        "stable_runtime_supported": stable,
+        "capabilities": {
+            "legacy_holding_writes": legacy_writes,
+            "shadow_diagnostics": shadow_diagnostics,
+            "risk_budget_reads": risk_reads,
+            "risk_plan_previews": risk_reads,
+            "risk_covered_position_creation": risk_reads,
+            "position_lifecycle_writes": False,
+            "csv_portability": False,
+            "webhook_delivery": False,
+        },
+    }
+
+
+def test_runtime_capability_discovery_does_not_create_authority_row(runtime_api):
+    client, factory = runtime_api
+
+    response = client.get("/api/runtime/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["authority_stage"] == "legacy"
+    db = factory()
+    assert db.query(MigrationAuthority).count() == 0
+    db.close()
+
+
+@pytest.mark.parametrize(
+    ("stage", "ready_status", "stable"),
+    [
+        ("legacy", 200, True),
+        ("shadow-read", 200, True),
+        ("new-authoritative", 503, False),
+    ],
+)
+def test_real_application_readiness_matches_runtime_capabilities(
+    monkeypatch, stage, ready_status, stable
+):
+    with _real_application(monkeypatch, stage) as client:
+        assert client.get("/api/health/live").status_code == 200
+        ready = client.get("/api/health/ready")
+        capabilities = client.get("/api/runtime/capabilities")
+
+    assert ready.status_code == ready_status
+    assert capabilities.status_code == 200
+    assert capabilities.json()["authority_stage"] == stage
+    assert capabilities.json()["stable_runtime_supported"] is stable
+    if not stable:
+        assert ready.json()["error_code"] == "new_authority_not_supported"
 
 
 @pytest.mark.parametrize("stage", ["legacy", "shadow-read", "new-authoritative"])

@@ -70,7 +70,7 @@ onMounted(load)
             <template #default="{ row }"><div class="cell-stack number"><strong>{{ row.quantity }} 份</strong><span>成本 {{ formatAssetMoney(row.buy_price, row.type) }}</span></div></template>
           </el-table-column>
           <el-table-column label="当前表现" min-width="160">
-            <template #default="{ row }"><div class="cell-stack number"><strong>{{ formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</span></div></template>
+            <template #default="{ row }"><div class="cell-stack number"><strong>{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</span></div></template>
           </el-table-column>
           <el-table-column label="止损风险" min-width="195">
             <template #default="{ row }"><div class="cell-stack number"><strong>{{ formatAssetMoney(row.stop_loss_price, row.type) }} · {{ methodLabel(row.stop_loss_method) }}</strong><span :class="`risk-${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ stopLossRisk(row.stop_loss_distance_pct, row.status).label }} {{ formatSignedPercent(row.stop_loss_distance_pct) }}</span></div></template>
@@ -91,7 +91,7 @@ onMounted(load)
             <el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag>
           </span>
           <span class="position-card__metrics">
-            <span><small>当前价</small><strong class="number">{{ formatAssetMoney(row.current_price, row.type) }}</strong></span>
+            <span><small>当前价</small><strong class="number">{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong></span>
             <span><small>盈亏</small><strong class="number" :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</strong></span>
             <span><small>止损价</small><strong class="number">{{ formatAssetMoney(row.stop_loss_price, row.type) }}</strong></span>
             <span><small>距止损</small><strong class="number" :class="`risk-${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ formatSignedPercent(row.stop_loss_distance_pct) }}</strong></span>

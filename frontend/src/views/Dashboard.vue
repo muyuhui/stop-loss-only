@@ -45,6 +45,12 @@ const valuationCoverage = computed(() => (
   ?? dashboard.value.valuation_coverage_pct
   ?? null
 ))
+const activeHoldingCount = computed(() => dashboard.value.holding_count + dashboard.value.triggered_count)
+
+function coverageLabel(value) {
+  if (value !== null && value !== undefined) return `${value}%`
+  return activeHoldingCount.value === 0 ? '暂无活动持仓' : '不可用'
+}
 
 async function load() {
   request.begin()
@@ -76,6 +82,9 @@ onMounted(async () => {
 })
 
 watch(() => settingsStore.pollInterval, startPolling)
+watch(riskPlanningAvailable, (available) => {
+  if (available && !riskBudgetStore.data && !riskBudgetStore.loading) void riskBudgetStore.fetchBudget()
+})
 onUnmounted(() => poller.stop())
 </script>
 
@@ -121,12 +130,12 @@ onUnmounted(() => poller.stop())
       </div>
 
       <div class="coverage-summary" aria-label="行情覆盖率">
-        <span>可操作行情覆盖：<strong>{{ actionableCoverage === null ? '--' : `${actionableCoverage}%` }}</strong></span>
-        <span>估值行情覆盖：<strong>{{ valuationCoverage === null ? '--' : `${valuationCoverage}%` }}</strong></span>
+        <span>可操作行情覆盖：<strong>{{ coverageLabel(actionableCoverage) }}</strong></span>
+        <span>估值行情覆盖：<strong>{{ coverageLabel(valuationCoverage) }}</strong></span>
         <el-button link @click="router.push('/holdings')">查看风险持仓</el-button>
       </div>
 
-      <section class="panel risk-budget-panel" aria-labelledby="risk-budget-title">
+      <section v-if="riskPlanningAvailable" class="panel risk-budget-panel" aria-labelledby="risk-budget-title">
         <header class="panel__header">
           <div><h2 id="risk-budget-title" class="panel__title">风险预算</h2><span class="section-hint">按所有开放仓位触及止损时的预计损失统计，与行情估值覆盖分开计算</span></div>
           <el-button v-if="runtimeCapabilities.isAvailable('risk_plan_previews')" type="primary" link @click="router.push('/planner')">规划新仓位</el-button>
@@ -217,7 +226,7 @@ onUnmounted(() => poller.stop())
             </el-table-column>
             <el-table-column label="当前表现" min-width="155">
               <template #default="{ row }">
-                <div class="cell-stack number"><strong>{{ formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`quote-tone--${quoteTrust(row).tone}`">{{ quoteTrust(row).text }}</span></div>
+                <div class="cell-stack number"><strong>{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`quote-tone--${quoteTrust(row).tone}`">{{ quoteTrust(row).text }}</span></div>
               </template>
             </el-table-column>
             <el-table-column label="止损风险" min-width="190">
@@ -238,7 +247,7 @@ onUnmounted(() => poller.stop())
           <button v-for="row in sortedHoldings" :key="row.id" class="holding-card" type="button" @click="router.push(`/holdings/${row.id}`)">
             <span class="holding-card__header"><span><strong>{{ row.name }}</strong><small>{{ row.code }}</small></span><el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag></span>
             <span class="holding-card__grid">
-              <span><small>当前价 · {{ quoteTrust(row).label }}</small><strong class="number">{{ formatAssetMoney(row.current_price, row.type) }}</strong></span>
+              <span><small>当前价 · {{ quoteTrust(row).label }}</small><strong class="number">{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong></span>
               <span><small>盈亏</small><strong class="number" :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</strong></span>
               <span><small>止损价</small><strong class="number">{{ formatAssetMoney(row.stop_loss_price, row.type) }}</strong></span>
               <span><small>距止损</small><strong class="number" :class="`risk-text--${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ formatSignedPercent(row.stop_loss_distance_pct) }}</strong></span>
@@ -281,6 +290,7 @@ onUnmounted(() => poller.stop())
 .risk-hero { padding: 24px 26px; display: flex; align-items: center; justify-content: space-between; gap: 24px; color: #f7fbf9; background: #29473e; border-radius: 16px; box-shadow: var(--shadow-panel); }
 .risk-hero--warning { background: #6b4b22; }
 .risk-hero--danger { background: #6b3430; }
+.risk-hero--pending { background: #4b5563; }
 .risk-hero__eyebrow { display: block; margin-bottom: 7px; color: rgba(255,255,255,.68); font-size: 12px; font-weight: 700; letter-spacing: .12em; }
 .risk-hero__title { margin: 0; font-size: 25px; line-height: 1.25; }
 .risk-hero__description { margin: 8px 0 0; color: rgba(255,255,255,.75); font-size: 13px; }

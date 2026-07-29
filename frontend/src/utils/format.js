@@ -26,6 +26,7 @@ export function formatAssetMoney(value, assetType) {
 }
 
 export function formatSignedPercent(value, digits = 2) {
+  if (value === null || value === undefined || value === '') return '--'
   const number = Number(value)
   if (!Number.isFinite(number)) return '--'
   const sign = number > 0 ? '+' : ''
@@ -33,6 +34,7 @@ export function formatSignedPercent(value, digits = 2) {
 }
 
 export function valueTone(value) {
+  if (value === null || value === undefined || value === '') return 'muted'
   const number = Number(value)
   if (!Number.isFinite(number) || number === 0) return 'muted'
   return number > 0 ? 'profit' : 'loss'
@@ -40,6 +42,7 @@ export function valueTone(value) {
 
 export function stopLossRisk(distance, status = 'holding') {
   if (status === 'triggered') return { level: 'danger', label: '已触发止损' }
+  if (distance === null || distance === undefined || distance === '') return { level: 'muted', label: '风险未知' }
   const number = Number(distance)
   if (!Number.isFinite(number)) return { level: 'muted', label: '风险未知' }
   if (number < 3) return { level: 'danger', label: '非常接近止损' }

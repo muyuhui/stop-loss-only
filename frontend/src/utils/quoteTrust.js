@@ -1,5 +1,5 @@
 const STATE_META = {
-  unpriced: { label: '未取价', tone: 'muted' },
+  unpriced: { label: '未定价', tone: 'muted' },
   live: { label: '实时', tone: 'success' },
   delayed: { label: '延迟', tone: 'warning' },
   close: { label: '收盘', tone: 'muted' },

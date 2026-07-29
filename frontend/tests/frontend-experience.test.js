@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 import { dashboardRiskSummary, sortHoldingsByRisk } from '../src/utils/dashboard.js'
+import { formatSignedPercent, stopLossRisk, valueTone } from '../src/utils/format.js'
 import { holdingPayload, priceInputMeta, stopLossInputMeta } from '../src/utils/holdingForm.js'
 import { detectSettingsPreset, settingsForPreset } from '../src/utils/settingsPresets.js'
 
@@ -16,6 +17,31 @@ test('dashboard orders triggered and nearest stop-loss holdings first', () => {
   assert.deepEqual(sortHoldingsByRisk(items).map(item => item.id), [3, 2, 1])
   assert.match(dashboardRiskSummary({ triggered_count: 1, holdings: items }).title, /已触发止损/)
   assert.match(dashboardRiskSummary({ triggered_count: 0, holdings: items.slice(0, 2) }).title, /非常接近止损/)
+})
+
+test('unknown percentages remain unknown across formatting, risk and sorting', () => {
+  assert.equal(formatSignedPercent(null), '--')
+  assert.equal(formatSignedPercent(undefined), '--')
+  assert.equal(formatSignedPercent(''), '--')
+  assert.equal(valueTone(null), 'muted')
+  assert.deepEqual(stopLossRisk(null), { level: 'muted', label: '风险未知' })
+
+  const items = [
+    { id: 1, status: 'holding', stop_loss_distance_pct: null },
+    { id: 2, status: 'holding', stop_loss_distance_pct: 8 },
+    { id: 3, status: 'holding', stop_loss_distance_pct: 2 },
+    { id: 4, status: 'holding', stop_loss_distance_pct: undefined },
+  ]
+  assert.deepEqual(sortHoldingsByRisk(items).map(item => item.id), [3, 2, 1, 4])
+  assert.deepEqual(dashboardRiskSummary({
+    triggered_count: 0,
+    active_alerts_count: 0,
+    holdings: items.filter(item => item.stop_loss_distance_pct == null),
+  }), {
+    level: 'pending',
+    title: '风险状态待定',
+    description: '活动持仓尚未取得可用行情，暂时无法判断止损距离。',
+  })
 })
 
 test('holding form metadata and payload follow the selected stop-loss method', () => {

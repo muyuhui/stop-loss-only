@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Holding, Position
+from models import Alert, Holding, Position
 from schemas import HoldingClose, HoldingCreate, HoldingHistoryResponse, HoldingPage, HoldingResponse, HoldingUpdate
 from services.price_history import HistoryUnavailable, holding_history
 from services.presentation import holding_payload, position_holding_payload
@@ -140,6 +141,10 @@ def close_holding(holding_id: int, data: HoldingClose, db: Session = Depends(get
         raise HTTPException(status_code=400, detail="该持仓已经关闭")
     holding.status = "closed"
     holding.close_price = to_decimal(data.close_price)
+    db.query(Alert).filter(
+        Alert.holding_id == holding.id,
+        or_(Alert.disposition == "triggered", Alert.disposition.is_(None)),
+    ).update({Alert.disposition: "closed"}, synchronize_session=False)
     _commit_legacy(db)
     db.refresh(holding)
     return holding_payload(holding)

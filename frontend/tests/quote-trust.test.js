@@ -17,6 +17,7 @@ test('quote trust uses backend state and exposes deterministic age', () => {
   assert.deepEqual(trust, { state: 'delayed', label: '延迟', tone: 'warning', age: '2 分钟前', actionable: true, text: '延迟 · 2 分钟前' })
   assert.equal(quoteAge(null, now), '无时间')
   assert.equal(quoteTrust({ quote_state: 'unpriced' }, now).actionable, false)
+  assert.equal(quoteTrust({ quote_state: 'unpriced' }, now).label, '未定价')
 })
 
 test('monitoring trust summarizes healthy, degraded and missing cycles', () => {

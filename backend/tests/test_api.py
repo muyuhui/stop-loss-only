@@ -48,6 +48,8 @@ def test_holding_contract_consistency_pagination_and_validation(api):
     assert created.status_code == 201
     item = created.json()
     assert item["current_price"] is None
+    assert item["profit_loss_pct"] is None
+    assert item["stop_loss_distance_pct"] is None
     assert item["quote_state"] == "unpriced" and item["is_actionable"] is False
     assert item["stop_loss_price"] == 9
     assert item["created_at"].endswith(("Z", "+00:00"))
@@ -84,10 +86,12 @@ def test_lifecycle_close_and_alert_snapshot(api):
     row.status = "triggered"
     row.quoted_at = datetime(2026, 7, 22, 10, 4, 1)
     row.fetched_at = datetime(2026, 7, 22, 10, 4, 2)
-    db.add(Alert(
+    alert = Alert(
         holding_id=row.id, holding_name=row.name, holding_code=row.code, lifecycle_key="test",
         trigger_price=9, current_price=8.8, quoted_at=datetime(2026, 7, 22, 10, 4, 1),
-    ))
+        read=True,
+    )
+    db.add(alert)
     db.commit()
     db.close()
     detail = client.get(f"/api/holdings/{item['id']}").json()
@@ -105,6 +109,44 @@ def test_lifecycle_close_and_alert_snapshot(api):
     assert alerts_page["items"][0]["quoted_at"].endswith("+08:00")
     assert alerts_page["items"][0]["created_at"].endswith("+00:00")
     assert alerts_page["items"][0]["holding_name"] == "测试股票"
+    assert alerts_page["items"][0]["current_price"] == 8.8
+    assert alerts_page["items"][0]["read"] is True
+    assert alerts_page["items"][0]["disposition"] == "closed"
+
+
+def test_alert_filters_search_before_pagination_and_normalize_legacy_disposition(api):
+    client, factory, _ = api
+    db = factory()
+    db.add_all([
+        Alert(
+            holding_name="平安银行", holding_code="000001", lifecycle_key="alert-1",
+            trigger_price=9, current_price=8.8, read=False, disposition=None,
+        ),
+        Alert(
+            holding_name="平安基金", holding_code="000002", lifecycle_key="alert-2",
+            trigger_price=2, current_price=1.9, read=True, disposition="closed",
+        ),
+        Alert(
+            holding_name="招商银行", holding_code="600036", lifecycle_key="alert-3",
+            trigger_price=30, current_price=29, read=False, disposition="triggered",
+        ),
+    ])
+    db.commit()
+    db.close()
+
+    first_page = client.get("/api/alerts?search=平安&page=1&size=1").json()
+    second_page = client.get("/api/alerts?search=平安&page=2&size=1").json()
+    assert first_page["total"] == second_page["total"] == 2
+    assert {first_page["items"][0]["holding_code"], second_page["items"][0]["holding_code"]} == {"000001", "000002"}
+    assert client.get("/api/alerts?search=000002").json()["items"][0]["holding_name"] == "平安基金"
+
+    read_page = client.get("/api/alerts?unread=false").json()
+    assert read_page["total"] == 1 and read_page["items"][0]["read"] is True
+    unresolved = client.get("/api/alerts?disposition=triggered").json()
+    assert unresolved["total"] == 2
+    assert {item["disposition"] for item in unresolved["items"]} == {"triggered"}
+    assert client.get("/api/alerts?disposition=invalid").status_code == 422
+    assert client.get(f"/api/alerts?search={'x' * 101}").status_code == 422
 
 
 def test_dashboard_mixed_portfolio_and_today_alert(api):
@@ -189,6 +231,23 @@ def test_openapi_contract_contains_models_and_statuses(api):
     assert "MonitoringStatusResponse" in schema["components"]["schemas"]
     assert "/api/monitoring/status" in schema["paths"]
     assert "204" in schema["paths"]["/api/holdings/{holding_id}"]["delete"]["responses"]
+    holding_schema = schema["components"]["schemas"]["HoldingResponse"]
+    for field in ("profit_loss_pct", "stop_loss_distance_pct"):
+        assert {item.get("type") for item in holding_schema["properties"][field]["anyOf"]} == {"number", "null"}
+
+
+def test_monitoring_coverage_distinguishes_empty_denominator_from_measured_zero(api):
+    client, _, _ = api
+    empty = client.get("/api/monitoring/status").json()
+    assert empty["actionable_quote_coverage_pct"] is None
+    assert empty["valuation_quote_coverage_pct"] is None
+    assert empty["quote_coverage_pct"] is None
+
+    client.post("/api/holdings", json=holding_body())
+    uncovered = client.get("/api/monitoring/status").json()
+    assert uncovered["actionable_quote_coverage_pct"] == 0
+    assert uncovered["valuation_quote_coverage_pct"] == 0
+    assert uncovered["quote_coverage_pct"] == 0
 
 
 def test_monitoring_status_and_paginated_cycles_are_actionable(api):

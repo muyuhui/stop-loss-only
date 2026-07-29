@@ -43,8 +43,8 @@ class HoldingResponse(BaseModel):
     stop_loss_method: str
     stop_loss_value: float
     stop_loss_price: float
-    profit_loss_pct: float
-    stop_loss_distance_pct: float
+    profit_loss_pct: float | None
+    stop_loss_distance_pct: float | None
     status: HoldingStatus
     close_price: float | None = None
     quote_source: str | None = None

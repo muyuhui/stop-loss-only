@@ -69,6 +69,7 @@ def test_concurrent_cycles_commit_only_one_trigger(tmp_path):
         results = list(executor.map(lambda _: run(), range(2)))
     check = factory()
     assert check.query(Alert).count() == 1
+    assert check.query(Alert).one().disposition == "triggered"
     assert check.query(Holding).one().status == "triggered"
     assert sorted(len(result["triggered"]) for result in results) == [0, 1]
     assert all(item["cycle_id"] for item in results)

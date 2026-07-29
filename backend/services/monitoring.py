@@ -245,6 +245,7 @@ def run_monitoring_cycle(
                                 lifecycle_key=idempotency_key, idempotency_key=idempotency_key, cycle_id=cycle_id,
                                 trigger_price=holding.stop_loss_price, current_price=price,
                                 quote_source=holding.quote_source, quoted_at=holding.quoted_at,
+                                disposition="triggered",
                             ))
                             db.flush()
                         succeeded += 1

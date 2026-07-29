@@ -6,6 +6,7 @@ import api, { requestHoldingHistory } from '../src/api'
 import Dashboard from '../src/views/Dashboard.vue'
 import HoldingDetail from '../src/views/HoldingDetail.vue'
 import Settings from '../src/views/Settings.vue'
+import { useRuntimeCapabilitiesStore } from '../src/stores/runtimeCapabilities'
 
 vi.mock('../src/api', () => ({
   default: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },
@@ -45,14 +46,24 @@ const stubs = {
   ElFormItem: { template: '<label><slot /></label>' },
 }
 
-async function mountAt(component, path, routes = []) {
+async function mountAt(component, path, routes = [], capabilities = null) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path, component }, { path: '/holdings', component: { template: '<p>持仓列表</p>' } }, ...routes],
   })
   await router.push(path.replace(':id', '12'))
   await router.isReady()
-  const wrapper = mount(component, { global: { plugins: [createPinia(), router], stubs } })
+  const pinia = createPinia()
+  if (capabilities === 'error') {
+    const store = useRuntimeCapabilitiesStore(pinia)
+    store.status = 'error'
+    store.error = '能力发现失败'
+  } else if (capabilities) {
+    useRuntimeCapabilitiesStore(pinia).apply({
+      authority_stage: 'legacy', stable_runtime_supported: true, capabilities,
+    })
+  }
+  const wrapper = mount(component, { global: { plugins: [pinia, router], stubs } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -80,7 +91,7 @@ describe('受支持视图真实挂载', () => {
     const { wrapper } = await mountAt(Dashboard, '/')
     expect(wrapper.text()).toContain('权威持仓')
     expect(api.get.mock.calls.some(([path]) => path === '/risk/budget')).toBe(false)
-    expect(wrapper.text()).toContain('当前运行模式未启用风险预算')
+    expect(wrapper.text()).not.toContain('风险预算')
     expect(setInterval).toHaveBeenCalledTimes(1)
 
     api.get.mockImplementation((path) => path === '/dashboard'
@@ -102,12 +113,95 @@ describe('受支持视图真实挂载', () => {
     expect(wrapper.text()).toContain('手动平仓')
   })
 
+  it('HoldingDetail 对未定价持仓显示未知语义而不是零风险', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: {
+        ...holdingData, current_price: null, profit_loss_pct: null,
+        stop_loss_distance_pct: null, quote_state: 'unpriced', is_actionable: false,
+      } })
+      return Promise.resolve({ data: path === '/settings' ? { poll_interval: 30, monitor_interval: 5 } : {} })
+    })
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(wrapper.text()).toContain('未定价')
+    expect(wrapper.text()).toContain('风险未知')
+    expect(wrapper.text()).not.toContain('0.00%')
+  })
+
   it('Settings 只显示可应用的稳定控制', async () => {
     const { wrapper } = await mountAt(Settings, '/settings')
     const text = wrapper.text()
     expect(text).toContain('刷新频率')
     expect(text).toContain('运行时诊断')
     expect(text).toContain('数据库备份')
+    expect(text).not.toContain('风险预算')
     expect(text).not.toMatch(/CSV|Webhook|Browser notifications|retention/i)
+    await wrapper.findAll('button').find(button => button.text() === '保存并应用').trigger('click')
+    await flushPromises()
+    expect(api.put).toHaveBeenCalledWith('/settings', { poll_interval: 30, monitor_interval: 5 })
+  })
+
+  it('Settings 仅在风险能力可用时显示并保存风险政策', async () => {
+    const { wrapper } = await mountAt(Settings, '/settings', [], { risk_budget_reads: true })
+    expect(wrapper.text()).toContain('风险预算')
+    expect(wrapper.text()).toContain('组合权益')
+    await wrapper.findAll('button').find(button => button.text() === '保存风险与运行设置').trigger('click')
+    await flushPromises()
+    expect(api.put).toHaveBeenCalledWith('/settings', expect.objectContaining({
+      poll_interval: 30,
+      monitor_interval: 5,
+      portfolio_equity: null,
+      portfolio_risk_limit_pct: 5,
+      default_position_risk_limit_pct: 1,
+    }))
+  })
+
+  it('Settings 在能力发现失败时默认关闭风险政策并只保存监控设置', async () => {
+    const { wrapper } = await mountAt(Settings, '/settings', [], 'error')
+    expect(wrapper.text()).not.toContain('风险预算')
+    await wrapper.findAll('button').find(button => button.text() === '保存并应用').trigger('click')
+    await flushPromises()
+    expect(api.put).toHaveBeenCalledWith('/settings', { poll_interval: 30, monitor_interval: 5 })
+  })
+
+  it('Dashboard 对全部未定价持仓显示风险待定并避免虚假零距离', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: {
+        ...dashboardData,
+        holdings: [{ ...dashboardData.holdings[0], current_price: null, profit_loss_pct: null,
+          stop_loss_distance_pct: null, quote_state: 'unpriced', is_actionable: false }],
+      } })
+      if (path === '/monitoring/status') return Promise.resolve({ data: {
+        scheduler_running: true, overdue: false,
+        actionable_quote_coverage_pct: 0, valuation_quote_coverage_pct: 0,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/')
+    expect(wrapper.text()).toContain('风险状态待定')
+    const card = wrapper.get('.holding-card')
+    expect(card.text()).toContain('未定价')
+    expect(card.text()).toContain('风险未知')
+    expect(card.text()).not.toContain('0.00%')
+    wrapper.unmount()
+  })
+
+  it('Dashboard 在空组合覆盖率未知时显示暂无活动持仓', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: {
+        ...dashboardData, holding_count: 0, triggered_count: 0, holdings: [],
+        actionable_position_coverage_pct: null, valuation_coverage_pct: null,
+      } })
+      if (path === '/monitoring/status') return Promise.resolve({ data: {
+        scheduler_running: true, overdue: false,
+        actionable_quote_coverage_pct: null, valuation_quote_coverage_pct: null,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/')
+    expect(wrapper.text()).toContain('可操作行情覆盖：暂无活动持仓')
+    expect(wrapper.text()).toContain('估值行情覆盖：暂无活动持仓')
+    wrapper.unmount()
   })
 })

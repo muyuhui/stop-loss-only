@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -15,18 +16,33 @@ def _payload(alert: Alert) -> dict:
         "holding_code": alert.holding_code, "trigger_price": float(alert.trigger_price),
         "current_price": float(alert.current_price), "quote_source": alert.quote_source,
         "quoted_at": as_market_time(alert.quoted_at).isoformat() if alert.quoted_at else None,
-        "read": alert.read, "disposition": alert.disposition,
+        "read": alert.read, "disposition": alert.disposition or "triggered",
         "position_id": alert.position_id, "trigger_event_id": alert.trigger_event_id,
         "created_at": as_utc(alert.created_at).isoformat() if alert.created_at else None,
     }
 
 
 @router.get("")
-def list_alerts(unread: bool | None = None, disposition: str | None = Query(None, max_length=20), page: int = Query(1, ge=1), size: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+def list_alerts(
+    search: str | None = Query(None, max_length=100),
+    unread: bool | None = None,
+    disposition: str | None = Query(None, pattern="^(triggered|closed|rearmed)$"),
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
     query = db.query(Alert)
-    if unread is True:
-        query = query.filter(Alert.read.is_(False))
-    if disposition:
+    term = search.strip() if search else ""
+    if term:
+        query = query.filter(or_(
+            Alert.holding_name.contains(term, autoescape=True),
+            Alert.holding_code.contains(term, autoescape=True),
+        ))
+    if unread is not None:
+        query = query.filter(Alert.read.is_(not unread))
+    if disposition == "triggered":
+        query = query.filter(or_(Alert.disposition == "triggered", Alert.disposition.is_(None)))
+    elif disposition:
         query = query.filter(Alert.disposition == disposition)
     total = query.count()
     alerts = query.order_by(Alert.created_at.desc(), Alert.id.desc()).offset((page - 1) * size).limit(size).all()

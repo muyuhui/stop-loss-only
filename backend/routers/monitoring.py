@@ -30,8 +30,8 @@ def _payload(cycle: MonitoringCycle | None) -> dict | None:
     }
 
 
-def _coverage(numerator: int, denominator: int) -> float:
-    return round(numerator / denominator * 100, 2) if denominator else 100.0
+def _coverage(numerator: int, denominator: int) -> float | None:
+    return round(numerator / denominator * 100, 2) if denominator else None
 
 
 def _status_payload(db: Session, *, now: datetime | None = None) -> dict:

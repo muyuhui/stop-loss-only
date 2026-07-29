@@ -16,6 +16,36 @@
     "stop_loss_distance_pct": 10.0,
     "status": "holding"
   },
+  "unpriced_holding": {
+    "id": 103,
+    "code": "000003",
+    "name": "待取价示例",
+    "type": "stock",
+    "buy_price": 10.0,
+    "quantity": 100,
+    "buy_date": "2026-03-04",
+    "current_price": null,
+    "highest_price": 10.0,
+    "stop_loss_method": "fixed",
+    "stop_loss_value": 9.0,
+    "stop_loss_price": 9.0,
+    "profit_loss_pct": null,
+    "stop_loss_distance_pct": null,
+    "status": "holding",
+    "quote_state": "unpriced",
+    "is_actionable": false
+  },
+  "monitoring_status": {
+    "actionable_quote_coverage_pct": null,
+    "valuation_quote_coverage_pct": null,
+    "quote_coverage_pct": null,
+    "meaning": "no_active_holdings"
+  },
+  "alert_query": {
+    "parameters": ["search", "unread", "disposition", "page", "size"],
+    "dispositions": ["triggered", "closed", "rearmed"],
+    "historical_null_disposition": "triggered"
+  },
   "refresh": {
     "cycle_id": "fixture-cycle-v2",
     "status": "ok",

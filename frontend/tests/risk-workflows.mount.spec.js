@@ -10,7 +10,7 @@ const stubs = {
   ElButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
   ElDialog: { props: ['modelValue'], template: '<div v-if="modelValue"><slot /></div>' },
   ElTable: { template: '<div><slot /></div>' },
-  ElTableColumn: { template: '<div><slot /></div>' },
+  ElTableColumn: { template: '<div />' },
   ElPagination: true,
   ElTag: { template: '<span><slot /></span>' },
   HoldingForm: { emits: ['success', 'cancel'], template: '<button class="holding-form-success" @click="$emit(\'success\')">save</button>' },
@@ -53,5 +53,19 @@ describe('legacy holdings page', () => {
     expect(wrapper.text()).toContain('持仓管理')
     expect(wrapper.text()).toContain('新增持仓')
     expect(wrapper.text()).not.toContain('新建仓位')
+  })
+
+  it('renders an unpriced holding without fabricated zero risk', async () => {
+    api.get.mockResolvedValue({ data: { items: [{
+      id: 1, code: '000001', name: '待取价持仓', type: 'stock', quantity: 100,
+      buy_price: 10, current_price: null, stop_loss_price: 9, stop_loss_method: 'fixed',
+      profit_loss_pct: null, stop_loss_distance_pct: null, quote_state: 'unpriced', status: 'holding',
+    }], total: 1 } })
+    const wrapper = await mountHoldings()
+    await flushPromises()
+    expect(wrapper.text()).toContain('待取价持仓')
+    expect(wrapper.text()).toContain('未定价')
+    expect(wrapper.text()).toContain('风险未知')
+    expect(wrapper.text()).not.toContain('0.00%')
   })
 })

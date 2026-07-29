@@ -138,6 +138,14 @@ python backend/db_admin.py restore <backup.db> <manifest.json>
 - 告警中的“查看持仓”进入 legacy 持仓详情，手动平仓需要单独确认并记录实际成交价。
 - 当前只支持整笔关闭 Holding；Position 批次、FIFO 分配和部分平仓保留在后续平台 change 中。
 
+## 可信展示与告警查询契约
+
+- `HoldingResponse.profit_loss_pct` 和 `stop_loss_distance_pct` 是可空字段。持仓处于 `unpriced` 且没有可估值行情时返回 `null`；前端显示“未定价”和“风险未知”，不会将空值转换为 `0.00%`、临近止损或安全状态。
+- `GET /api/monitoring/status` 在没有活动持仓作为分母时，将 `actionable_quote_coverage_pct`、`valuation_quote_coverage_pct` 和兼容字段 `quote_coverage_pct` 返回为 `null`。存在活动持仓但均未覆盖时返回真实的 `0%`。
+- `GET /api/alerts` 支持 `search`、`unread`、`disposition`、`page` 和 `size`。搜索匹配不可变的持仓名称/代码快照并在分页前执行；`unread=false` 明确筛选已读告警；处置状态仅接受 `triggered`、`closed`、`rearmed`。
+- 历史空处置状态在响应和 `triggered` 筛选中按待处理解释。手动关闭 legacy 持仓会在同一业务事务中把相关待处理告警更新为 `closed`，但不会修改阅读状态和触发快照。
+- 风险预算读取或规划能力不可用时，仪表盘和设置页不展示对应区域，也不会请求可选风险接口或提交隐藏的风险政策字段。直接访问 `/planner` 仍显示明确的不可用状态。
+
 ## Risk budget and position planner
 
 - Risk planning is available only after the position domain reaches

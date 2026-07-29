@@ -5,12 +5,14 @@ import api, { refreshErrorMessage, requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
 import { useSettingsStore } from '../stores/settings'
 import { useMonitoringStore } from '../stores/monitoring'
+import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { summarizeRefresh } from '../utils/refreshResult'
 import { detectSettingsPreset, SETTINGS_PRESETS, settingsForPreset } from '../utils/settingsPresets'
 import { useRequestState } from '../utils/requestState'
 
 const settingsStore = useSettingsStore()
 const monitoringStore = useMonitoringStore()
+const runtimeCapabilities = useRuntimeCapabilitiesStore()
 const pollInterval = ref(30)
 const monitorInterval = ref(5)
 const portfolioEquity = ref(null)
@@ -21,6 +23,10 @@ const refreshing = ref(false)
 const advancedOpen = ref(false)
 const request = useRequestState()
 const selectedPreset = computed(() => detectSettingsPreset(pollInterval.value, monitorInterval.value))
+const riskSettingsAvailable = computed(() => (
+  runtimeCapabilities.isAvailable('risk_budget_reads')
+  || runtimeCapabilities.isAvailable('risk_plan_previews')
+))
 
 function selectPreset(id) {
   const values = settingsForPreset(id)
@@ -36,7 +42,7 @@ async function loadSettings() {
     if (!loaded) throw new Error('settings unavailable')
     pollInterval.value = settingsStore.pollInterval
     monitorInterval.value = settingsStore.monitorInterval
-    portfolioEquity.value = settingsStore.portfolioEquity === null ? null : Number(settingsStore.portfolioEquity)
+    portfolioEquity.value = settingsStore.portfolioEquity == null ? null : Number(settingsStore.portfolioEquity)
     portfolioRiskLimitPct.value = Number(settingsStore.portfolioRiskLimitPct)
     defaultPositionRiskLimitPct.value = Number(settingsStore.defaultPositionRiskLimitPct)
     advancedOpen.value = selectedPreset.value === 'custom'
@@ -55,16 +61,19 @@ async function save() {
   }
   saving.value = true
   try {
-    await settingsStore.saveSettings({
+    const payload = {
       poll_interval: pollInterval.value,
       monitor_interval: monitorInterval.value,
+    }
+    if (riskSettingsAvailable.value) Object.assign(payload, {
       portfolio_equity: portfolioEquity.value,
       portfolio_risk_limit_pct: portfolioRiskLimitPct.value,
       default_position_risk_limit_pct: defaultPositionRiskLimitPct.value,
     })
+    await settingsStore.saveSettings(payload)
     pollInterval.value = settingsStore.pollInterval
     monitorInterval.value = settingsStore.monitorInterval
-    portfolioEquity.value = Number(settingsStore.portfolioEquity)
+    portfolioEquity.value = settingsStore.portfolioEquity == null ? null : Number(settingsStore.portfolioEquity)
     portfolioRiskLimitPct.value = Number(settingsStore.portfolioRiskLimitPct)
     defaultPositionRiskLimitPct.value = Number(settingsStore.defaultPositionRiskLimitPct)
     ElMessage.success('设置已保存并生效')
@@ -107,7 +116,7 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
     <DataState v-else-if="request.error.value && !request.hasData.value" kind="error" title="暂时无法加载设置" :description="request.error.value" action-label="重新加载" @action="loadSettings" />
 
     <div v-else class="settings-stack">
-      <section class="panel" aria-labelledby="risk-policy-title">
+      <section v-if="riskSettingsAvailable" class="panel" aria-labelledby="risk-policy-title">
         <header class="panel__header"><div><h2 id="risk-policy-title" class="panel__title">风险预算</h2><span class="panel-hint">账户权益由你手工维护，不代表券商实时余额</span></div></header>
         <div class="panel__body settings-body">
           <div class="risk-settings-grid">

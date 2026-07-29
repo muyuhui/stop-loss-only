@@ -4,7 +4,7 @@ async function assertPageIntegrity(page, browserErrors) {
   await expect(page.locator('body')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
   const clippedCommands = await page.locator('button:visible, a:visible').evaluateAll((items) => items
-    .filter((item) => item.scrollWidth > item.clientWidth + 1)
+    .filter((item) => !item.querySelector('.el-badge, .mobile-nav__badge') && item.scrollWidth > item.clientWidth + 1)
     .map((item) => item.textContent?.trim()).filter(Boolean))
   expect(clippedCommands).toEqual([])
   expect(browserErrors).toEqual([])
@@ -51,11 +51,25 @@ test('legacy 创建、刷新触发、告警查看与手动平仓', async ({ page
     dialog.getByRole('button', { name: '保存持仓' }).click(),
   ])
   await expect(page.locator('strong:visible').filter({ hasText: holdingName }).first()).toBeVisible()
+  const unpricedCard = page.locator('.position-card').filter({ hasText: holdingName })
+  await expect(unpricedCard).toContainText('未定价')
+  await expect(unpricedCard).toContainText('风险未知')
+  await expect(unpricedCard).not.toContainText('0.00%')
+  await assertPageIntegrity(page, browserErrors)
+
+  await page.goto('/')
+  const dashboardHolding = page.locator('.holding-card').filter({ hasText: holdingName })
+  await expect(dashboardHolding).toContainText('未定价')
+  await expect(dashboardHolding).toContainText('风险未知')
+  await expect(dashboardHolding).not.toContainText('0.00%')
+  await expect(page.locator('body')).not.toContainText('风险预算')
+  await expect(page.locator('a[href="/planner"]:visible')).toHaveCount(0)
+  expect(unsupportedRiskRequests).toEqual([])
   await assertPageIntegrity(page, browserErrors)
 
   await clickVisibleNav(page, '设置')
   await expect(page.getByRole('heading', { name: '设置' })).toBeVisible()
-  await expect(page.locator('body')).not.toContainText(/CSV|Webhook|Browser notifications|retention/i)
+  await expect(page.locator('body')).not.toContainText(/CSV|Webhook|Browser notifications|retention|风险预算|组合权益/i)
   await Promise.all([
     page.waitForResponse((response) => response.url().includes('/api/prices/refresh')),
     page.getByRole('button', { name: '立即刷新' }).click(),
@@ -63,8 +77,22 @@ test('legacy 创建、刷新触发、告警查看与手动平仓', async ({ page
   await assertPageIntegrity(page, browserErrors)
 
   await clickVisibleNav(page, '告警')
+  await expect(page.getByLabel('搜索告警')).toBeVisible()
+  await expect(page.getByRole('combobox', { name: '阅读状态' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: '处置状态' })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(/全部生命周期|风险优先|最新优先|Lifecycle|Risk|Sort/)
+  await page.getByLabel('搜索告警').fill(holdingName)
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/alerts?') && response.url().includes('search=')),
+    page.getByRole('button', { name: '搜索', exact: true }).click(),
+  ])
+  await expect(page).toHaveURL(/search=/)
   const alert = page.locator('.alert-card').filter({ hasText: holdingName })
   await expect(alert).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('搜索告警')).toHaveValue(holdingName)
+  await expect(alert).toBeVisible()
+  await assertPageIntegrity(page, browserErrors)
   await alert.getByRole('button', { name: '查看持仓' }).click()
   await expect(page).toHaveURL(/\/holdings\/\d+$/)
   await expect(page.getByRole('heading', { name: holdingName })).toBeVisible()

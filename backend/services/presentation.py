@@ -11,8 +11,8 @@ def holding_payload(holding: Holding) -> dict:
     has_quote = quote_state != "unpriced" and holding.quoted_at is not None
     current = to_decimal(holding.current_price) if has_quote else None
     buy = to_decimal(holding.buy_price)
-    pnl = round(float((current - buy) / buy * 100), 2) if current is not None and buy else 0.0
-    distance = round(float((current - stop_loss_price) / current * 100), 2) if current is not None and current > 0 else 0.0
+    pnl = round(float((current - buy) / buy * 100), 2) if current is not None and buy else None
+    distance = round(float((current - stop_loss_price) / current * 100), 2) if current is not None and current > 0 else None
     return {
         "id": holding.id, "code": holding.code, "name": holding.name, "type": holding.type,
         "buy_price": float(buy), "quantity": holding.quantity, "buy_date": holding.buy_date,
@@ -49,8 +49,8 @@ def position_holding_payload(db, position: Position) -> dict:
         "highest_price": float(rule.high_water_mark) if rule else float(unit_cost),
         "stop_loss_method": rule.method if rule else "fixed", "stop_loss_value": float(rule.value) if rule else 0.0001,
         "stop_loss_price": float(rule.stop_price) if rule else 0.0,
-        "profit_loss_pct": round(float((quote - unit_cost) / unit_cost * 100), 2) if quote is not None and unit_cost else 0.0,
-        "stop_loss_distance_pct": round(float((quote - rule.stop_price) / quote * 100), 2) if quote is not None and rule and quote else 0.0,
+        "profit_loss_pct": round(float((quote - unit_cost) / unit_cost * 100), 2) if quote is not None and unit_cost else None,
+        "stop_loss_distance_pct": round(float((quote - rule.stop_price) / quote * 100), 2) if quote is not None and rule and quote else None,
         "status": status, "close_price": float(close_price) if close_price is not None else None,
         "quote_source": "position-domain", "quoted_at": None, "fetched_at": None, "quote_state": position.quote_state,
         "fresh_until": None, "is_actionable": position.is_actionable, "quote_error_code": None,

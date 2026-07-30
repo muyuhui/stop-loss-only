@@ -59,6 +59,7 @@ try {
 Normalize-ProcessPathEnvironment
 $backend = Start-Process -WindowStyle Hidden -FilePath 'python' -ArgumentList @('-m','uvicorn','main:app','--host','127.0.0.1','--port',"$BackendPort",'--workers','1') -WorkingDirectory (Join-Path $root 'backend') -RedirectStandardOutput (Join-Path $logDir 'backend.log') -RedirectStandardError (Join-Path $logDir 'backend.err.log') -PassThru
 Save-ProcessRecord $backend 'backend' $BackendPort (Join-Path $root '.backend.process.json')
+$env:VITE_API_PROXY_TARGET = "http://127.0.0.1:$BackendPort"
 $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
 $frontend = Start-Process -WindowStyle Hidden -FilePath $npm -ArgumentList @('run','dev','--','--host','127.0.0.1','--port',"$FrontendPort",'--strictPort') -WorkingDirectory (Join-Path $root 'frontend') -RedirectStandardOutput (Join-Path $logDir 'frontend.log') -RedirectStandardError (Join-Path $logDir 'frontend.err.log') -PassThru
 Save-ProcessRecord $frontend 'frontend' $FrontendPort (Join-Path $root '.frontend.process.json')

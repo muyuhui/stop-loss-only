@@ -67,6 +67,12 @@ def test_start_and_verify_use_config_independent_frontend_dependency_check():
         assert "check-dependencies.mjs" in script
 
 
+def test_start_routes_frontend_api_to_the_selected_backend_port():
+    start = (ROOT / "start.ps1").read_text(encoding="utf-8")
+    assert '$env:VITE_API_PROXY_TARGET = "http://127.0.0.1:$BackendPort"' in start
+    assert "$env:VITE_API_PROXY_TARGET" in start.split("Start-Process -WindowStyle Hidden -FilePath $npm", 1)[0]
+
+
 def test_process_start_identity_handles_powershell_json_datetime_conversion():
     helper = (ROOT / "scripts" / "process_identity.ps1").as_posix()
     powershell = shutil.which("pwsh") or shutil.which("powershell.exe")

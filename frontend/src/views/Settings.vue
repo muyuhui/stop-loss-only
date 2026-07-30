@@ -122,7 +122,7 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
           <div class="risk-settings-grid">
             <label><span>组合权益</span><small>用于把百分比风险换算为金额；发生入金、出金或较大变化后请更新。</small><span class="number-field"><el-input-number v-model="portfolioEquity" :min="0.01" :precision="2" :controls="false" aria-label="手工维护的组合权益" /><em>元</em></span></label>
             <label><span>组合风险上限</span><small>所有开放仓位触及止损时的预计总损失上限。</small><span class="number-field"><el-input-number v-model="portfolioRiskLimitPct" :min="0.01" :max="100" :precision="2" :controls="false" aria-label="组合风险上限百分比" /><em>%</em></span></label>
-            <label><span>默认单笔风险上限</span><small>规划新仓位时默认使用，可在单次规划中调低或调整。</small><span class="number-field"><el-input-number v-model="defaultPositionRiskLimitPct" :min="0.01" :max="portfolioRiskLimitPct || 100" :precision="2" :controls="false" aria-label="默认单笔风险上限百分比" /><em>%</em></span></label>
+            <label><span>默认单笔风险上限</span><small>新仓和加仓风险试算默认使用，可在单次试算中调整。</small><span class="number-field"><el-input-number v-model="defaultPositionRiskLimitPct" :min="0.01" :max="portfolioRiskLimitPct || 100" :precision="2" :controls="false" aria-label="默认单笔风险上限百分比" /><em>%</em></span></label>
           </div>
           <p class="manual-equity-note">手工权益最近更新：{{ settingsStore.portfolioEquityUpdatedAt ? new Date(settingsStore.portfolioEquityUpdatedAt).toLocaleString('zh-CN', { hour12: false }) : '尚未设置' }}</p>
           <div class="settings-actions"><el-button type="primary" :loading="saving" @click="save">保存风险与运行设置</el-button></div>

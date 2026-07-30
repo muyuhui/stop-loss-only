@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from database import Base, get_db
 from models import Alert, Holding, MonitoringCycle
-from routers import alerts, dashboard, holdings, monitoring, prices, settings
+from routers import alerts, dashboard, holdings, monitoring, prices, risk, settings
 
 
 @pytest.fixture()
@@ -19,7 +19,7 @@ def api():
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False)
     app = FastAPI()
-    for router in (holdings.router, prices.router, alerts.router, dashboard.router, settings.router, monitoring.router):
+    for router in (holdings.router, prices.router, alerts.router, dashboard.router, settings.router, monitoring.router, risk.router):
         app.include_router(router, prefix="/api")
 
     def override_db():
@@ -229,7 +229,14 @@ def test_openapi_contract_contains_models_and_statuses(api):
     assert "DashboardResponse" in schema["components"]["schemas"]
     assert "RefreshCycleResponse" in schema["components"]["schemas"]
     assert "MonitoringStatusResponse" in schema["components"]["schemas"]
+    assert "RiskPlanResponse" in schema["components"]["schemas"]
+    assert "RiskAddOnPlanResponse" in schema["components"]["schemas"]
     assert "/api/monitoring/status" in schema["paths"]
+    assert "/api/risk/plans/preview" in schema["paths"]
+    assert "/api/risk/plans/add-on-preview" in schema["paths"]
+    add_on_operation = schema["paths"]["/api/risk/plans/add-on-preview"]["post"]
+    assert add_on_operation["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith("/RiskAddOnPlanRequest")
+    assert add_on_operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/RiskAddOnPlanResponse")
     assert "204" in schema["paths"]["/api/holdings/{holding_id}"]["delete"]["responses"]
     holding_schema = schema["components"]["schemas"]["HoldingResponse"]
     for field in ("profit_loss_pct", "stop_loss_distance_pct"):

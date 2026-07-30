@@ -16,6 +16,8 @@ test('risk budget views preserve unavailable and indeterminate semantics', async
   assert.match(settings, /账户权益由你手工维护/)
   assert.match(planner, /所有财务计算均由后端 Decimal 引擎完成/)
   assert.match(planner, /系统不知道你的券商可用现金/)
+  assert.match(planner, /风险约束下的最大数量/)
+  assert.doesNotMatch(planner, /推荐买入/)
 })
 
 test('planner is keyboard-labelled and mobile-safe', async () => {
@@ -40,5 +42,6 @@ test('mobile navigation exposes the planner without overflow-prone fixed widths'
     readFile(fileURLToPath(new URL('styles.css', base)), 'utf8'),
   ])
   assert.match(app, /path: '\/planner'/)
+  assert.match(app, /desktopLabel: '风险试算'/)
   assert.match(styles, /grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/)
 })

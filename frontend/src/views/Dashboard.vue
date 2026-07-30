@@ -137,16 +137,16 @@ onUnmounted(() => poller.stop())
 
       <section v-if="riskPlanningAvailable" class="panel risk-budget-panel" aria-labelledby="risk-budget-title">
         <header class="panel__header">
-          <div><h2 id="risk-budget-title" class="panel__title">风险预算</h2><span class="section-hint">按所有开放仓位触及止损时的预计损失统计，与行情估值覆盖分开计算</span></div>
-          <el-button v-if="runtimeCapabilities.isAvailable('risk_plan_previews')" type="primary" link @click="router.push('/planner')">规划新仓位</el-button>
+          <div><h2 id="risk-budget-title" class="panel__title">风险预算</h2><span class="section-hint">按所有活动持仓触及止损时的预计损失统计，与行情估值覆盖分开计算</span></div>
+          <el-button v-if="runtimeCapabilities.isAvailable('risk_plan_previews')" type="primary" link @click="router.push('/planner')">新仓风险试算</el-button>
         </header>
         <div v-if="budget" class="risk-budget-grid">
           <article><span>组合风险上限</span><strong class="number">{{ formatMoney(budget.portfolio_limit_amount) }}</strong><small>手工权益 {{ formatMoney(budget.portfolio_equity) }} × {{ budget.portfolio_risk_limit_pct }}%</small></article>
-          <article><span>已使用风险</span><strong class="number">{{ formatMoney(budget.used_risk_amount) }}</strong><small>覆盖 {{ budget.covered_position_count }}/{{ budget.open_position_count }} 个开放仓位</small></article>
+          <article><span>已使用风险</span><strong class="number">{{ formatMoney(budget.used_risk_amount) }}</strong><small>覆盖 {{ budget.covered_position_count }}/{{ budget.open_position_count }} 个活动持仓</small></article>
           <article>
             <span>{{ budget.remaining_capacity === null ? '剩余风险容量未知' : '剩余风险容量' }}</span>
             <strong class="number">{{ formatMoney(budget.remaining_capacity) }}</strong>
-            <small v-if="budget.status === 'incomplete'">存在没有有效止损规则的仓位，不能安全估算剩余额度</small>
+            <small v-if="budget.status === 'incomplete'">存在无法计算止损风险的活动持仓，不能安全估算剩余额度</small>
             <small v-else-if="budget.status === 'exceeded'">已超过上限 {{ formatMoney(budget.exceeded_amount) }}</small>
             <small v-else>预算使用率 {{ budget.utilization_pct ?? '--' }}%</small>
             <el-button v-if="budget.status === 'incomplete'" link @click="router.push('/holdings')">查看未覆盖仓位</el-button>

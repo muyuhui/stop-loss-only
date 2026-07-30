@@ -43,15 +43,15 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => vi.restoreAllMocks())
 
 describe('runtime capability shell', () => {
-  it('hides planner navigation for the stable legacy runtime', async () => {
+  it('shows risk preview navigation for the stable legacy runtime', async () => {
     const wrapper = await mountShell(Promise.resolve({ data: {
       authority_stage: 'legacy',
       stable_runtime_supported: true,
-      capabilities: { legacy_holding_writes: true, risk_plan_previews: false },
+      capabilities: { legacy_holding_writes: true, risk_plan_previews: true },
     } }))
 
     expect(wrapper.text()).toContain('核心页面')
-    expect(wrapper.text()).not.toContain('仓位规划')
+    expect(wrapper.text()).toContain('风险试算')
     wrapper.unmount()
   })
 
@@ -59,7 +59,7 @@ describe('runtime capability shell', () => {
     const wrapper = await mountShell(Promise.reject(new Error('offline')))
 
     expect(wrapper.text()).toContain('核心页面')
-    expect(wrapper.text()).not.toContain('仓位规划')
+    expect(wrapper.text()).not.toContain('风险试算')
     wrapper.unmount()
   })
 
@@ -70,7 +70,7 @@ describe('runtime capability shell', () => {
       capabilities: { risk_plan_previews: true },
     } }))
 
-    expect(wrapper.text()).toContain('仓位规划')
+    expect(wrapper.text()).toContain('风险试算')
     wrapper.unmount()
   })
 })

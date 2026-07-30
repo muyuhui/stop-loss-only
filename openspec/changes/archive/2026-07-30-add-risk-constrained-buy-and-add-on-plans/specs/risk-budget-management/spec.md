@@ -1,25 +1,4 @@
-# Risk Budget Management
-
-## Purpose
-
-Manage a manually maintained portfolio risk policy and expose covered stop-loss risk, utilization, remaining capacity, and coverage without presenting incomplete values as complete portfolio risk.
-
-## Requirements
-
-### Requirement: Configure a manual portfolio risk policy
-The system SHALL support an explicitly entered positive Decimal portfolio equity, a portfolio risk limit from greater than 0 through 100 percent, and a default per-position risk limit greater than 0 and no greater than the portfolio limit. The system MUST identify the equity as manually maintained and return its last update time.
-
-#### Scenario: Save a valid risk policy
-- **WHEN** the user saves portfolio equity `100000`, portfolio risk limit `5`, and default position risk limit `1`
-- **THEN** the system persists the exact values and reports portfolio and default position limits of `5000` and `1000`
-
-#### Scenario: Reject an inconsistent position limit
-- **WHEN** the user submits a default position risk limit greater than the portfolio risk limit
-- **THEN** the system returns a stable field validation error and preserves the previously effective policy
-
-#### Scenario: Equity has not been configured
-- **WHEN** percentage defaults exist but the user has never entered portfolio equity
-- **THEN** the system reports risk budgeting as unavailable and MUST NOT substitute current market value or a fabricated equity
+## MODIFIED Requirements
 
 ### Requirement: Aggregate covered portfolio stop risk
 系统 SHALL 根据当前权威阶段聚合组合止损风险：`legacy` 与 `shadow-read` 阶段只读取状态为 `holding` 或 `triggered` 的 Holding，`new-authoritative` 阶段只读取开放 Position。legacy Holding 的预计止损损失 SHALL 使用 `max(0, (buy_price - stop_loss_price) * quantity)`；Position SHALL 继续使用剩余成本、剩余数量、活动止损规则和明确的预计退出成本。系统 SHALL 返回覆盖小计、组合上限、使用率、按记录数量与成本计算的覆盖率，以及已知剩余容量或明确的不可确定状态，并 MUST NOT 同时聚合权威事实与其 shadow 投影。
@@ -51,14 +30,3 @@ The system SHALL support an explicitly entered positive Decimal portfolio equity
 #### Scenario: 当前行情不可用
 - **WHEN** 权威活动记录具有有效成本、数量和止损价，但没有可行动当前行情
 - **THEN** 其预计止损损失仍可被覆盖计算，当前估值覆盖率继续独立降级
-
-### Requirement: Expose risk budget status without false precision
-The frontend SHALL show manually maintained equity, portfolio limit, used covered risk, remaining or indeterminate capacity, coverage, and exceeded status with text as well as visual styling. It MUST NOT display an unavailable or indeterminate amount as zero.
-
-#### Scenario: Risk coverage is incomplete
-- **WHEN** the risk-budget response marks remaining capacity indeterminate
-- **THEN** the interface displays the coverage gap and a route to the affected positions instead of a numeric remaining-risk claim
-
-#### Scenario: Mobile risk summary
-- **WHEN** the user views the risk budget at a viewport between 360px and 767px
-- **THEN** the values, coverage explanation, and primary action remain readable without page-level horizontal scrolling

@@ -1,5 +1,10 @@
 {
   "schema_version": 2,
+  "risk_policy": {
+    "portfolio_equity": "100000.0000",
+    "portfolio_risk_limit_pct": "5.00",
+    "default_position_risk_limit_pct": "1.00"
+  },
   "holdings": [
     {
       "id": 101,

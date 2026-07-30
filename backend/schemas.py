@@ -135,6 +135,14 @@ class RiskPlanRequest(BaseModel):
     position_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
 
 
+class RiskAddOnPlanRequest(BaseModel):
+    holding_id: int = Field(..., ge=1)
+    planned_entry_price: Decimal = Field(..., gt=0)
+    entry_fees: Decimal = Field(Decimal("0"), ge=0)
+    estimated_exit_fees: Decimal = Field(Decimal("0"), ge=0)
+    position_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
+
+
 class RiskBudgetResponse(BaseModel):
     status: Literal["unavailable", "incomplete", "available", "exhausted", "exceeded"]
     reason_code: str | None = None
@@ -157,8 +165,10 @@ class RiskBudgetResponse(BaseModel):
 
 
 class RiskPlanResponse(BaseModel):
+    plan_kind: Literal["new"] = "new"
     status: Literal["ready", "refused"]
     reason_code: str | None = None
+    calculated_at: datetime
     normalized_input: dict
     budget: RiskBudgetResponse
     initial_stop_price: str | None = None
@@ -175,6 +185,51 @@ class RiskPlanResponse(BaseModel):
     recommended_quantity: str | None = None
     projected_loss_at_stop: str | None = None
     required_capital: str | None = None
+    post_plan_portfolio_used_risk: str | None = None
+    post_plan_portfolio_utilization_pct: str | None = None
+
+
+class RiskHoldingSnapshot(BaseModel):
+    id: int
+    version: int
+    code: str
+    name: str
+    asset_type: Literal["stock", "fund"]
+    status: HoldingStatus
+    quantity: str
+    buy_price: str
+    current_price: str | None = None
+    quote_state: QuoteStateName
+    is_actionable: bool
+    stop_loss_price: str
+
+
+class RiskAddOnPlanResponse(BaseModel):
+    plan_kind: Literal["add_on"] = "add_on"
+    status: Literal["ready", "refused"]
+    reason_code: str | None = None
+    calculated_at: datetime
+    holding: RiskHoldingSnapshot
+    budget: RiskBudgetResponse
+    planned_entry_price: str
+    existing_stop_price: str
+    current_holding_risk: str | None = None
+    effective_position_risk_limit_pct: str | None = None
+    position_limit_amount: str | None = None
+    remaining_position_capacity: str | None = None
+    remaining_portfolio_capacity: str | None = None
+    allowed_incremental_risk: str | None = None
+    entry_fees: str
+    estimated_exit_fees: str
+    unit_price_risk: str | None = None
+    raw_quantity: str | None = None
+    quantity_increment: str
+    recommended_quantity: str | None = None
+    incremental_projected_loss: str | None = None
+    required_capital: str | None = None
+    post_plan_holding_risk: str | None = None
+    post_plan_portfolio_used_risk: str | None = None
+    post_plan_portfolio_utilization_pct: str | None = None
 
 
 class PositionOpenRequest(BaseModel):

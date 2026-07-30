@@ -113,6 +113,30 @@ describe('受支持视图真实挂载', () => {
     expect(wrapper.text()).toContain('手动平仓')
   })
 
+  it('HoldingDetail 仅为活动持仓提供可恢复的加仓风险试算入口', async () => {
+    const { wrapper, router } = await mountAt(
+      HoldingDetail,
+      '/holdings/:id',
+      [{ path: '/planner', component: { template: '<p>风险试算</p>' } }],
+      { risk_plan_previews: true },
+    )
+    const addOnButton = wrapper.findAll('button').find(button => button.text() === '加仓风险试算')
+    expect(addOnButton).toBeTruthy()
+    await addOnButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/planner')
+    expect(router.currentRoute.value.query).toEqual({ mode: 'add-on', holding_id: '12' })
+
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: { ...holdingData, status: 'triggered' } })
+      return Promise.resolve({ data: path === '/settings' ? { poll_interval: 30, monitor_interval: 5 } : {} })
+    })
+    const { wrapper: triggered } = await mountAt(
+      HoldingDetail, '/holdings/:id', [], { risk_plan_previews: true },
+    )
+    expect(triggered.text()).not.toContain('加仓风险试算')
+  })
+
   it('HoldingDetail 对未定价持仓显示未知语义而不是零风险', async () => {
     api.get.mockImplementation((path) => {
       if (path === '/holdings/12') return Promise.resolve({ data: {
@@ -153,6 +177,87 @@ describe('受支持视图真实挂载', () => {
       portfolio_risk_limit_pct: 5,
       default_position_risk_limit_pct: 1,
     }))
+  })
+
+  it('稳定运行面的只读试算能力也会显示风险政策', async () => {
+    const { wrapper } = await mountAt(Settings, '/settings', [], {
+      risk_budget_reads: false,
+      risk_plan_previews: true,
+      risk_covered_position_creation: false,
+    })
+    expect(wrapper.text()).toContain('风险预算')
+    expect(wrapper.text()).toContain('新仓和加仓风险试算默认使用')
+    expect(wrapper.text()).not.toContain('创建仓位')
+  })
+
+  it('Dashboard 在稳定风险能力开启时展示活动持仓预算和新仓试算入口', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      if (path === '/risk/budget') return Promise.resolve({ data: {
+        status: 'available', portfolio_equity: '100000', portfolio_risk_limit_pct: '5',
+        portfolio_limit_amount: '5000', used_risk_amount: '100', remaining_capacity: '4900',
+        utilization_pct: '2', covered_position_count: 1, open_position_count: 1,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/', [], {
+      risk_budget_reads: true,
+      risk_plan_previews: true,
+      risk_covered_position_creation: false,
+    })
+    expect(api.get).toHaveBeenCalledWith('/risk/budget', expect.objectContaining({
+      suppressErrorCodes: expect.any(Array),
+    }))
+    expect(wrapper.text()).toContain('按所有活动持仓触及止损时的预计损失统计')
+    expect(wrapper.text()).toContain('新仓风险试算')
+    expect(wrapper.text()).toContain('覆盖 1/1 个活动持仓')
+  })
+
+  it('Dashboard 风险预算请求失败时不显示虚假零值', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      if (path === '/risk/budget') return Promise.reject(new Error('offline'))
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/', [], { risk_budget_reads: true })
+    expect(wrapper.text()).toContain('风险预算暂时不可用')
+    expect(wrapper.text()).toContain('未知值不会显示为零')
+    expect(wrapper.text()).not.toContain('¥0.00')
+  })
+
+  it('Dashboard 明确区分组合权益未设置与风险覆盖不完整', async () => {
+    let riskBudget = {
+      status: 'unavailable', reason_code: 'portfolio_equity_unset', portfolio_equity: null,
+      portfolio_risk_limit_pct: '5', portfolio_limit_amount: null, used_risk_amount: '100',
+      remaining_capacity: null, utilization_pct: null, covered_position_count: 1,
+      open_position_count: 1,
+    }
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      if (path === '/risk/budget') return Promise.resolve({ data: riskBudget })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/', [], { risk_budget_reads: true })
+    expect(wrapper.text()).toContain('组合风险上限--')
+    expect(wrapper.text()).toContain('剩余风险容量未知--')
+    expect(wrapper.text()).not.toContain('组合风险上限¥0.00')
+
+    riskBudget = {
+      ...riskBudget, status: 'incomplete', reason_code: 'portfolio_risk_coverage_incomplete',
+      portfolio_equity: '100000', portfolio_limit_amount: '5000',
+      covered_position_count: 1, open_position_count: 2,
+    }
+    await wrapper.findAll('button').find(button => button.text() === '刷新').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('存在无法计算止损风险的活动持仓')
+    expect(wrapper.text()).toContain('查看未覆盖仓位')
+    expect(wrapper.text()).toContain('剩余风险容量未知')
   })
 
   it('Settings 在能力发现失败时默认关闭风险政策并只保存监控设置', async () => {

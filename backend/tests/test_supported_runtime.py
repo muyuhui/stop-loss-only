@@ -79,15 +79,28 @@ def _holding() -> Holding:
 
 
 @pytest.mark.parametrize(
-    ("stage", "stable", "legacy_writes", "shadow_diagnostics", "risk_reads"),
+    (
+        "stage",
+        "stable",
+        "legacy_writes",
+        "shadow_diagnostics",
+        "risk_reads",
+        "risk_creation",
+    ),
     [
-        ("legacy", True, True, False, False),
-        ("shadow-read", True, True, True, False),
-        ("new-authoritative", False, False, False, True),
+        ("legacy", True, True, False, True, False),
+        ("shadow-read", True, True, True, True, False),
+        ("new-authoritative", False, False, False, True, True),
     ],
 )
 def test_runtime_capabilities_are_stage_aware(
-    runtime_api, stage, stable, legacy_writes, shadow_diagnostics, risk_reads
+    runtime_api,
+    stage,
+    stable,
+    legacy_writes,
+    shadow_diagnostics,
+    risk_reads,
+    risk_creation,
 ):
     client, factory = runtime_api
     db = factory()
@@ -106,7 +119,7 @@ def test_runtime_capabilities_are_stage_aware(
             "shadow_diagnostics": shadow_diagnostics,
             "risk_budget_reads": risk_reads,
             "risk_plan_previews": risk_reads,
-            "risk_covered_position_creation": risk_reads,
+            "risk_covered_position_creation": risk_creation,
             "position_lifecycle_writes": False,
             "csv_portability": False,
             "webhook_delivery": False,

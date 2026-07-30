@@ -144,29 +144,18 @@ python backend/db_admin.py restore <backup.db> <manifest.json>
 - `GET /api/monitoring/status` 在没有活动持仓作为分母时，将 `actionable_quote_coverage_pct`、`valuation_quote_coverage_pct` 和兼容字段 `quote_coverage_pct` 返回为 `null`。存在活动持仓但均未覆盖时返回真实的 `0%`。
 - `GET /api/alerts` 支持 `search`、`unread`、`disposition`、`page` 和 `size`。搜索匹配不可变的持仓名称/代码快照并在分页前执行；`unread=false` 明确筛选已读告警；处置状态仅接受 `triggered`、`closed`、`rearmed`。
 - 历史空处置状态在响应和 `triggered` 筛选中按待处理解释。手动关闭 legacy 持仓会在同一业务事务中把相关待处理告警更新为 `closed`，但不会修改阅读状态和触发快照。
-- 风险预算读取或规划能力不可用时，仪表盘和设置页不展示对应区域，也不会请求可选风险接口或提交隐藏的风险政策字段。直接访问 `/planner` 仍显示明确的不可用状态。
+- 风险预算读取或风险试算能力不可用时，仪表盘和设置页不展示对应区域，也不会请求可选风险接口或提交隐藏的风险政策字段。直接访问 `/planner` 仍显示明确的不可用状态。
 
-## Risk budget and position planner
+## 风险预算与买入风险试算
 
-- Risk planning is available only after the position domain reaches
-  `new-authoritative`. It never writes to the legacy holdings path.
-- Portfolio equity is a manually maintained planning input, not a live broker
-  balance. Update it after deposits, withdrawals, or material account changes.
-- The default policy is a 5% portfolio stop-risk ceiling and a 1% per-position
-  ceiling. Position risk cannot exceed the portfolio percentage.
-- Covered portfolio risk is the sum of each open position's estimated loss at its
-  active stop: `max(0, remaining_cost + estimated_exit_cost -
-  stop_price * remaining_quantity)`. This calculation does not require a current
-  actionable quote; valuation coverage and stop-risk coverage are reported
-  separately.
-- If any open position lacks a calculable active stop, remaining risk capacity is
-  indeterminate and the planner does not recommend a quantity.
-- A plan uses the tighter of per-position risk and remaining portfolio capacity,
-  subtracts the user's fixed entry and exit fee estimates, and rounds down. Normal
-  A-share openings use 100-share lots; funds use up to six quantity decimals.
-- The planner reports required capital but cannot verify broker cash. A preview is
-  advisory, reserves no capacity, places no order, and creates no position. The
-  user must continue to a separate position form and explicitly submit it.
+- 稳定的 `legacy` 与 `shadow-read` 运行面支持只读风险预算、新仓风险试算和活动 Holding 的加仓风险试算。两者仍以 Holding 为权威事实，不开启 Position 创建、批次、部分平仓或其他 Position 生命周期写入。
+- 组合权益是手工维护的试算输入，不是券商实时余额。默认政策为组合止损风险上限 5%、单笔风险上限 1%；入金、出金或权益发生较大变化后应重新维护并试算。
+- legacy Holding 的当前止损风险口径为 `max(0, (buy_price - stop_loss_price) * quantity)`。Holding 不保存历史交易费用，因此系统不会补造历史费用；新仓或加仓计划中明确填写的买入与退出费用会计入本次增量风险。
+- `shadow-read` 只计算 legacy Holding，不会把对应 shadow Position 重复计入。隔离的 `new-authoritative` API 仍按 Position 剩余成本、剩余数量、活动止损和预计退出费用计算。
+- 任一活动权威记录缺少可计算数量、成本或止损价时，剩余风险容量为未知，系统不返回数量。风险覆盖与行情估值覆盖彼此独立，止损风险计算不要求当前行情可行动。
+- 新仓和加仓都使用单笔剩余容量与组合剩余容量中更严格的一项，扣除明确费用后向下取整。A 股按 100 股取整，基金数量最多保留六位小数，结果统一称为“风险约束下的最大数量”。
+- 加仓风险试算始终沿用 Holding 当前持久化止损价，不重算百分比止损、不放宽止损，也不重置移动止损最高价；若要调整止损，应先通过独立止损流程修改，再重新试算。
+- 风险试算只回答在给定输入下最多能承受多少止损风险，不判断标的是否值得买，不预测收益，不生成推荐标的。系统无法验证券商可用现金，不预留风险容量、不下单、不创建或修改持仓，也不记录实际加仓；采取任何行动前需要用最新数据重新试算并自行复核资金。
 
 ### v4 回滚
 

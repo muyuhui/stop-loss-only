@@ -37,10 +37,16 @@ class RuntimePolicy:
 
 
 _POLICIES = {
-    "legacy": RuntimeCapabilities(legacy_holding_writes=True),
+    "legacy": RuntimeCapabilities(
+        legacy_holding_writes=True,
+        risk_budget_reads=True,
+        risk_plan_previews=True,
+    ),
     "shadow-read": RuntimeCapabilities(
         legacy_holding_writes=True,
         shadow_diagnostics=True,
+        risk_budget_reads=True,
+        risk_plan_previews=True,
     ),
     # The stable application still rejects this stage at readiness. These flags
     # describe only the isolated APIs that already exist for migration testing.

@@ -11,9 +11,11 @@ import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 import { summarizeRefresh } from '../utils/refreshResult'
 import { useRequestState } from '../utils/requestState'
 import { quoteTrust } from '../utils/quoteTrust'
+import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 
 const route = useRoute()
 const router = useRouter()
+const runtimeCapabilities = useRuntimeCapabilitiesStore()
 const holding = ref({})
 const editMode = ref(false)
 const saving = ref(false)
@@ -33,6 +35,14 @@ const priceMeta = computed(() => priceInputMeta(holding.value.type))
 const editMeta = computed(() => stopLossInputMeta(editForm.stop_loss_method, holding.value.type))
 const holdingRisk = computed(() => stopLossRisk(holding.value.stop_loss_distance_pct, holding.value.status))
 const trust = computed(() => quoteTrust(holding.value))
+const addOnPlanningAvailable = computed(() => (
+  holding.value.status === 'holding'
+  && runtimeCapabilities.isAvailable('risk_plan_previews')
+))
+
+function openAddOnPlan() {
+  router.push({ path: '/planner', query: { mode: 'add-on', holding_id: String(holding.value.id) } })
+}
 
 async function load() {
   request.begin()
@@ -177,6 +187,7 @@ onMounted(load)
           <div><h2 id="stop-settings-title" class="panel__title">止损设置</h2><span class="panel-hint">历史最高 {{ formatAssetMoney(holding.highest_price, holding.type) }}</span></div>
           <div class="panel-actions">
             <el-button :loading="refreshing" @click="refreshPrice">刷新价格</el-button>
+            <el-button v-if="addOnPlanningAvailable" @click="openAddOnPlan">加仓风险试算</el-button>
             <el-button v-if="holding.status === 'holding' && !editMode" type="primary" @click="editMode = true">修改止损</el-button>
           </div>
         </header>

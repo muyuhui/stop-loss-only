@@ -23,6 +23,13 @@ def test_schema_v2_and_api_fixtures_are_privacy_safe_and_representative():
     assert unpriced["quote_state"] == "unpriced"
     assert api["monitoring_status"]["quote_coverage_pct"] is None
     assert api["alert_query"]["parameters"] == ["search", "unread", "disposition", "page", "size"]
+    assert schema["risk_policy"]["portfolio_equity"] == "100000.0000"
+    assert api["runtime_capabilities"]["capabilities"]["risk_plan_previews"] is True
+    assert api["runtime_capabilities"]["capabilities"]["risk_covered_position_creation"] is False
+    assert api["risk_plan_preview"]["plan_kind"] == "new"
+    assert api["risk_plan_preview"]["recommended_quantity"] == "400"
+    assert api["risk_add_on_preview"]["plan_kind"] == "add_on"
+    assert api["risk_add_on_preview"]["holding"]["stop_loss_price"] == "9.0000"
     stored_unpriced = next(row for row in schema["holdings"] if row["id"] == 103)
     assert stored_unpriced["current_price"] == "0.0000"
     assert stored_unpriced["quote_state"] == "unpriced"

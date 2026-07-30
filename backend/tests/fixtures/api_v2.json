@@ -46,6 +46,55 @@
     "dispositions": ["triggered", "closed", "rearmed"],
     "historical_null_disposition": "triggered"
   },
+  "runtime_capabilities": {
+    "authority_stage": "legacy",
+    "stable_runtime_supported": true,
+    "capabilities": {
+      "legacy_holding_writes": true,
+      "shadow_diagnostics": false,
+      "risk_budget_reads": true,
+      "risk_plan_previews": true,
+      "risk_covered_position_creation": false,
+      "position_lifecycle_writes": false,
+      "csv_portability": true,
+      "webhook_delivery": true
+    }
+  },
+  "risk_plan_preview": {
+    "plan_kind": "new",
+    "status": "ready",
+    "reason_code": null,
+    "recommended_quantity": "400",
+    "quantity_increment": "100",
+    "projected_loss_at_stop": "810",
+    "required_capital": "8005",
+    "post_plan_portfolio_used_risk": "910"
+  },
+  "risk_add_on_preview": {
+    "plan_kind": "add_on",
+    "status": "ready",
+    "reason_code": null,
+    "holding": {
+      "id": 101,
+      "code": "000001",
+      "name": "示例股票",
+      "asset_type": "stock",
+      "status": "holding",
+      "quantity": "100",
+      "buy_price": "10.0000",
+      "stop_loss_price": "9.0000"
+    },
+    "planned_entry_price": "10",
+    "existing_stop_price": "9.0000",
+    "current_holding_risk": "100",
+    "remaining_position_capacity": "900",
+    "allowed_incremental_risk": "900",
+    "recommended_quantity": "800",
+    "incremental_projected_loss": "810",
+    "post_plan_holding_risk": "910",
+    "post_plan_portfolio_used_risk": "910",
+    "required_capital": "8005"
+  },
   "refresh": {
     "cycle_id": "fixture-cycle-v2",
     "status": "ok",

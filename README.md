@@ -166,6 +166,7 @@ python backend/db_admin.py restore <backup.db> <manifest.json>
 - 少于 20 个历史点时只生成低可信风险复盘，不判断近期趋势；完全没有历史行情时拒绝复盘。已有缓存足够但更新失败时可以降级使用缓存，并显示最后交易日和数据局限。
 - 复盘动作受固定枚举和本地规则约束。已触发止损会强制显示“执行既定止损”；加仓相关结果最多引导进入现有只读风险试算，不给数量、不代表推荐买入，也不会自动交易。复盘不包含新闻、财报、行业研究、券商余额或未来价格预测。
 - 常见稳定错误码：`ai_not_configured`（未配置）、`ai_review_busy`（同持仓已有请求）、`market_data_not_ready`（当前行情不可用）、`history_data_unavailable`（无历史行情）、`ai_timeout`、`ai_rate_limited`、`ai_unavailable` 和 `ai_response_invalid`。错误后可保留原持仓页面继续修改止损或手动平仓，并按提示重试。
+- DeepSeek 首次返回的 JSON 若不符合结构或引用了不存在的事实，后端会携带完整输出契约和脱敏错误位置自动纠正一次，因此单次复盘最多可能产生两次 Provider 调用。纠正不会放宽本地事实校验，不会记录模型原文，也不会产生持仓、止损或订单写入。
 - Provider 固定为 DeepSeek 官方 HTTPS API，第一版不支持其他 Provider 或自定义 Base URL。默认模型和超时可由应用环境配置维护，但不会在设置页开放任意地址。
 
 ### v4 回滚

@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import traceback
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -32,10 +33,41 @@ from services.ai_review import (
     holding_review_lock,
 )
 from services.price_history import analysis_history
-from services import secret_store
+from services import ai_provider, secret_store
 
 
 NOW = datetime(2026, 7, 30, 15, 0)
+
+
+def provider_review_payload(**changes):
+    payload = {
+        "summary": "风险保持可控。",
+        "action": "continue_observing",
+        "reasons": [
+            {"text": "当前状态正常。", "fact_ids": ["holding.status"]}
+        ],
+        "risk_scenarios": [],
+        "limitations": ["不包含基本面"],
+        "confidence": "medium",
+    }
+    payload.update(changes)
+    return payload
+
+
+def deepseek_response(content, *, model="deepseek-v4-flash"):
+    if not isinstance(content, str):
+        content = json.dumps(content, ensure_ascii=False)
+    return httpx.Response(
+        200,
+        json={"model": model, "choices": [{"message": {"content": content}}]},
+    )
+
+
+def provider_snapshot():
+    return {
+        "version": "1",
+        "facts": [{"fact_id": "holding.status", "value": "holding"}],
+    }
 
 
 def make_db():
@@ -137,39 +169,12 @@ def test_deepseek_provider_uses_current_official_json_contract():
     def handler(request: httpx.Request):
         captured["authorization"] = request.headers.get("authorization")
         captured["body"] = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={
-                "model": "deepseek-v4-flash",
-                "choices": [
-                    {
-                        "message": {
-                            "content": json.dumps(
-                                {
-                                    "summary": "风险保持可控。",
-                                    "action": "continue_observing",
-                                    "reasons": [
-                                        {
-                                            "text": "当前状态正常。",
-                                            "fact_ids": ["holding.status"],
-                                        }
-                                    ],
-                                    "risk_scenarios": [],
-                                    "limitations": ["不包含基本面"],
-                                    "confidence": "medium",
-                                },
-                                ensure_ascii=False,
-                            )
-                        }
-                    }
-                ],
-            },
-        )
+        return deepseek_response(provider_review_payload())
 
     provider = DeepSeekProvider(
         "test-secret", transport=httpx.MockTransport(handler)
     )
-    result = provider.review({"version": "1", "facts": []})
+    result = provider.review(provider_snapshot())
 
     assert result.action == "continue_observing"
     assert captured["authorization"] == "Bearer test-secret"
@@ -177,6 +182,147 @@ def test_deepseek_provider_uses_current_official_json_contract():
     assert captured["body"]["response_format"] == {"type": "json_object"}
     assert captured["body"]["thinking"] == {"type": "disabled"}
     assert "json" in captured["body"]["messages"][0]["content"].lower()
+    request_input = json.loads(captured["body"]["messages"][1]["content"])
+    assert request_input["allowed_fact_ids"] == ["holding.status"]
+    assert request_input["response_schema"]["additionalProperties"] is False
+    assert request_input["snapshot"] == provider_snapshot()
+
+
+@pytest.mark.parametrize(
+    ("invalid_content", "stage", "location"),
+    [
+        ("not-json-private-response", "json_decode", "$"),
+        (
+            provider_review_payload(unexpected="private-extra-value"),
+            "schema_validation",
+            "$extra",
+        ),
+        (
+            provider_review_payload(risk_scenarios=["private-invalid-scenario"]),
+            "schema_validation",
+            "risk_scenarios.0",
+        ),
+        (
+            provider_review_payload(action="private_invalid_action"),
+            "schema_validation",
+            "action",
+        ),
+        (
+            provider_review_payload(
+                reasons=[
+                    {
+                        "text": "引用了不存在的事实。",
+                        "fact_ids": ["private.unknown.fact"],
+                    }
+                ]
+            ),
+            "fact_reference",
+            "reasons.0.fact_ids.0",
+        ),
+    ],
+)
+def test_deepseek_provider_repairs_invalid_reviews_once(
+    invalid_content, stage, location
+):
+    requests = []
+
+    def handler(request: httpx.Request):
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return deepseek_response(invalid_content)
+        return deepseek_response(provider_review_payload())
+
+    result = DeepSeekProvider(
+        "test-secret", transport=httpx.MockTransport(handler)
+    ).review(provider_snapshot())
+
+    assert result.action == "continue_observing"
+    assert len(requests) == 2
+    assert requests[0]["temperature"] == 0.1
+    assert requests[1]["temperature"] == 0
+    repair_input = json.loads(requests[1]["messages"][1]["content"])
+    assert repair_input["validation_feedback"] == {
+        "stage": stage,
+        "locations": [location],
+    }
+    assert repair_input["allowed_fact_ids"] == ["holding.status"]
+    serialized_repair = json.dumps(requests[1], ensure_ascii=False)
+    assert "private" not in serialized_repair
+
+
+def test_deepseek_provider_stops_after_two_invalid_reviews():
+    calls = 0
+
+    def handler(request: httpx.Request):
+        nonlocal calls
+        calls += 1
+        return deepseek_response("still-not-json")
+
+    provider = DeepSeekProvider(
+        "test-secret", transport=httpx.MockTransport(handler)
+    )
+    with pytest.raises(AIProviderError) as exc:
+        provider.review(provider_snapshot())
+
+    assert exc.value.error_code == "ai_response_invalid"
+    assert calls == 2
+
+
+def test_deepseek_invalid_response_is_absent_from_exception_chain():
+    private_value = "private-model-value-that-must-not-reach-traceback"
+
+    def handler(request: httpx.Request):
+        return deepseek_response(
+            provider_review_payload(action=private_value)
+        )
+
+    provider = DeepSeekProvider(
+        "test-secret", transport=httpx.MockTransport(handler)
+    )
+    with pytest.raises(AIProviderError) as exc:
+        provider.review(provider_snapshot())
+
+    rendered = "".join(
+        traceback.format_exception(
+            type(exc.value), exc.value, exc.value.__traceback__
+        )
+    )
+    current = exc.value
+    while current is not None:
+        rendered += repr(current)
+        current = current.__cause__ or current.__context__
+    assert private_value not in rendered
+
+
+def test_deepseek_validation_logs_are_bounded_and_redacted(monkeypatch, caplog):
+    calls = 0
+
+    def handler(request: httpx.Request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return deepseek_response("private-model-response")
+        return deepseek_response(provider_review_payload())
+
+    monkeypatch.setattr(
+        ai_provider, "get_correlation_id", lambda: "safe-correlation", raising=False
+    )
+    caplog.set_level(logging.WARNING, logger="services.ai_provider")
+    DeepSeekProvider(
+        "recognizable-secret", transport=httpx.MockTransport(handler)
+    ).review(provider_snapshot())
+
+    record = next(
+        item for item in caplog.records if item.message == "ai_response_validation_failed"
+    )
+    rendered = JsonFormatter().format(record)
+    payload = json.loads(rendered)
+    assert payload["correlation_id"] == "safe-correlation"
+    assert payload["validation_stage"] == "json_decode"
+    assert payload["validation_locations"] == ["$"]
+    assert payload["attempt"] == 1
+    assert "recognizable-secret" not in rendered
+    assert "private-model-response" not in rendered
 
 
 @pytest.mark.parametrize(
@@ -188,7 +334,11 @@ def test_deepseek_provider_uses_current_official_json_contract():
     ],
 )
 def test_deepseek_provider_maps_failures_without_leaking_payload(effect, code):
+    calls = 0
+
     def handler(request: httpx.Request):
+        nonlocal calls
+        calls += 1
         if isinstance(effect, Exception):
             raise effect
         return effect
@@ -200,6 +350,7 @@ def test_deepseek_provider_maps_failures_without_leaking_payload(effect, code):
         provider.review({"version": "1", "facts": []})
     assert exc.value.error_code == code
     assert "recognizable-secret" not in str(exc.value)
+    assert calls == 1
 
 
 def test_fixture_provider_supports_deterministic_success_and_failure_modes():
@@ -426,6 +577,32 @@ def test_review_api_updates_only_history_cache(monkeypatch):
     } == before
     assert db.query(PriceHistory).count() == 25
     db.close()
+
+
+def test_review_api_returns_502_after_two_invalid_provider_responses(monkeypatch):
+    calls = 0
+
+    def handler(request: httpx.Request):
+        nonlocal calls
+        calls += 1
+        return deepseek_response("invalid-review")
+
+    provider = DeepSeekProvider(
+        "test-secret", transport=httpx.MockTransport(handler)
+    )
+    client, factory, _ = make_ai_api(monkeypatch, provider)
+    db = factory()
+    holding = make_holding(buy_date=date(2026, 1, 1))
+    db.add(holding)
+    db.commit()
+    holding_id = holding.id
+    db.close()
+
+    response = client.post(f"/api/ai/holdings/{holding_id}/review")
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["error_code"] == "ai_response_invalid"
+    assert calls == 2
 
 
 @pytest.mark.parametrize(

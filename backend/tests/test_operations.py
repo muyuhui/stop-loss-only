@@ -4,8 +4,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from config import AppConfig
-from observability import JsonFormatter
+from observability import JsonFormatter, RequestLoggingMiddleware, get_correlation_id
 from models import MonitoringCycle
 
 
@@ -31,6 +34,50 @@ def test_structured_log_ignores_sensitive_extra_fields():
     assert payload["correlation_id"] == "safe-id"
     assert payload["cycle_id"] == "safe-cycle"
     assert not {"price", "quantity", "cost", "raw_response"}.intersection(payload)
+
+
+def test_structured_log_allows_only_bounded_ai_validation_diagnostics():
+    record = logging.LogRecord(
+        "services.ai_provider",
+        logging.WARNING,
+        __file__,
+        1,
+        "ai_response_validation_failed",
+        (),
+        None,
+    )
+    record.validation_stage = "schema_validation"
+    record.validation_locations = ["risk_scenarios.0"]
+    record.attempt = 1
+    record.raw_response = "private-provider-response"
+    record.prompt = "private-prompt"
+
+    payload = json.loads(JsonFormatter().format(record))
+
+    assert payload["validation_stage"] == "schema_validation"
+    assert payload["validation_locations"] == ["risk_scenarios.0"]
+    assert payload["attempt"] == 1
+    assert "raw_response" not in payload
+    assert "prompt" not in payload
+
+
+def test_request_correlation_context_is_available_and_then_cleared():
+    observed = []
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    @app.get("/correlation")
+    def correlation():
+        observed.append(get_correlation_id())
+        return {"status": "ok"}
+
+    response = TestClient(app).get(
+        "/correlation", headers={"x-correlation-id": "safe-correlation"}
+    )
+
+    assert response.headers["x-correlation-id"] == "safe-correlation"
+    assert observed == ["safe-correlation"]
+    assert get_correlation_id() is None
 
 
 def test_monitoring_diagnostics_schema_contains_only_aggregate_counts():

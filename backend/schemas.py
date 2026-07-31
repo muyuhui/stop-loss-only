@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 HoldingStatus = Literal["holding", "triggered", "closed"]
@@ -101,6 +101,7 @@ class SettingsResponse(BaseModel):
     portfolio_risk_limit_pct: Decimal = Decimal("5")
     default_position_risk_limit_pct: Decimal = Decimal("1")
     portfolio_equity_updated_at: datetime | None = None
+    deepseek_api_key_configured: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -118,6 +119,138 @@ class SettingsUpdate(BaseModel):
     portfolio_equity: Decimal | None = Field(None, gt=0)
     portfolio_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
     default_position_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
+    deepseek_api_key: str | None = Field(None, min_length=16, max_length=512)
+    clear_deepseek_api_key: bool = False
+
+
+AIReviewAction = Literal[
+    "execute_existing_stop",
+    "pause_add_on",
+    "continue_observing",
+    "review_risk_exposure",
+    "open_add_on_preview",
+    "refresh_data",
+]
+AIReviewConfidence = Literal["high", "medium", "low"]
+
+
+class AIReviewFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fact_id: str = Field(..., min_length=1, max_length=80, pattern=r"^[a-z0-9_.-]+$")
+    label: str = Field(..., min_length=1, max_length=80)
+    value: str | None = Field(None, max_length=120)
+    as_of: str | None = Field(None, max_length=64)
+    source: str = Field(..., min_length=1, max_length=80)
+
+
+class AIReviewHistoryPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trade_date: date
+    price: str
+
+
+class AIReviewMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    return_5d_pct: str | None = None
+    return_20d_pct: str | None = None
+    return_60d_pct: str | None = None
+    max_drawdown_pct: str | None = None
+    range_position_pct: str | None = None
+
+
+class HoldingReviewSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: Literal["1"] = "1"
+    holding_id: int
+    holding_version: int
+    code: str
+    name: str
+    asset_type: Literal["stock", "fund"]
+    status: HoldingStatus
+    buy_date: date
+    holding_days: int
+    buy_price: str
+    quantity: str
+    current_price: str
+    quote_state: QuoteStateName
+    quote_source: str | None = None
+    quoted_at: datetime | None = None
+    profit_loss_pct: str
+    stop_loss_method: Literal["fixed", "percentage", "trailing"]
+    stop_loss_price: str
+    stop_loss_distance_pct: str
+    triggered: bool
+    history_points: list[AIReviewHistoryPoint] = Field(..., min_length=1, max_length=60)
+    sample_count: int = Field(..., ge=1, le=60)
+    history_source: str | None = None
+    history_last_trade_date: date
+    history_stale: bool
+    history_warning: str | None = Field(None, max_length=200)
+    metrics: AIReviewMetrics
+    holding_risk_amount: str | None = None
+    position_limit_amount: str | None = None
+    portfolio_status: str
+    portfolio_utilization_pct: str | None = None
+    portfolio_remaining_capacity: str | None = None
+    portfolio_coverage_complete: bool
+    facts: list[AIReviewFact] = Field(..., min_length=1, max_length=40)
+
+
+class ProviderReviewReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(..., min_length=1, max_length=240)
+    fact_ids: list[str] = Field(..., min_length=1, max_length=5)
+
+
+class ProviderRiskScenario(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    condition: str = Field(..., min_length=1, max_length=180)
+    impact: str = Field(..., min_length=1, max_length=240)
+    fact_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ProviderHoldingReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(..., min_length=1, max_length=240)
+    action: AIReviewAction
+    reasons: list[ProviderReviewReason] = Field(..., min_length=1, max_length=3)
+    risk_scenarios: list[ProviderRiskScenario] = Field(default_factory=list, max_length=2)
+    limitations: list[str] = Field(default_factory=list, max_length=6)
+    confidence: AIReviewConfidence
+
+
+class AIReviewReason(BaseModel):
+    text: str
+    facts: list[AIReviewFact]
+
+
+class AIReviewScenario(BaseModel):
+    condition: str
+    impact: str
+    facts: list[AIReviewFact]
+
+
+class HoldingReviewResponse(BaseModel):
+    summary: str
+    action: AIReviewAction
+    reasons: list[AIReviewReason]
+    risk_scenarios: list[AIReviewScenario]
+    limitations: list[str]
+    confidence: AIReviewConfidence
+    can_open_add_on_preview: bool
+    current_quote_state: QuoteStateName
+    current_quote_at: datetime | None = None
+    history_last_trade_date: date
+    generated_at: datetime
+    provider: Literal["deepseek"] = "deepseek"
+    model: str
 
 
 StopMethodName = Literal["fixed", "percentage", "trailing"]
@@ -287,6 +420,7 @@ class RuntimeCapabilityMap(BaseModel):
     position_lifecycle_writes: bool
     csv_portability: bool
     webhook_delivery: bool
+    ai_holding_reviews: bool
 
 
 class RuntimeCapabilitiesResponse(BaseModel):

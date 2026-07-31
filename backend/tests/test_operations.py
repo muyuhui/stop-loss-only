@@ -51,6 +51,28 @@ def test_start_script_never_kills_port_owner_and_stop_checks_ownership():
     assert "Stop-LegacyRecordedProcess" in stop and "serviceMarker" in stop
 
 
+def test_stop_script_safely_recovers_orphaned_project_listeners():
+    stop = (ROOT / "stop.ps1").read_text(encoding="utf-8")
+
+    assert "Stop-OrphanedProjectListener 'backend' $BackendPort" in stop
+    assert "Stop-OrphanedProjectListener 'frontend' $FrontendPort" in stop
+    assert "Test-ProjectProcessCommand" in stop
+    assert "Test-ProjectService" in stop
+    assert "$commandConfirmed -and $serviceConfirmed" in stop
+    assert "Wait-PortReleased" in stop
+    assert "could not be verified as this project's" in stop
+
+
+def test_orphan_recovery_requires_project_specific_service_markers():
+    stop = (ROOT / "stop.ps1").read_text(encoding="utf-8")
+
+    assert "'/api/holdings'" in stop
+    assert "'/api/prices/refresh'" in stop
+    assert "'/@vite/client'" in stop
+    assert "[regex]::Escape($root)" in stop
+    assert "[int]$Pid" not in stop
+
+
 def test_setup_is_separate_from_startup():
     start = (ROOT / "start.ps1").read_text(encoding="utf-8")
     setup = (ROOT / "setup.ps1").read_text(encoding="utf-8")

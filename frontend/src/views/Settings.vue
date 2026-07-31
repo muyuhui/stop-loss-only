@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { refreshErrorMessage, requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
 import { useSettingsStore } from '../stores/settings'
@@ -21,12 +21,16 @@ const defaultPositionRiskLimitPct = ref(1)
 const saving = ref(false)
 const refreshing = ref(false)
 const advancedOpen = ref(false)
+const deepseekApiKey = ref('')
+const savingDeepseek = ref(false)
+const testingDeepseek = ref(false)
 const request = useRequestState()
 const selectedPreset = computed(() => detectSettingsPreset(pollInterval.value, monitorInterval.value))
 const riskSettingsAvailable = computed(() => (
   runtimeCapabilities.isAvailable('risk_budget_reads')
   || runtimeCapabilities.isAvailable('risk_plan_previews')
 ))
+const aiReviewAvailable = computed(() => runtimeCapabilities.isAvailable('ai_holding_reviews'))
 
 function selectPreset(id) {
   const values = settingsForPreset(id)
@@ -103,6 +107,65 @@ async function refreshPrices() {
   }
 }
 
+async function saveDeepseekKey() {
+  const value = deepseekApiKey.value.trim()
+  if (savingDeepseek.value || value.length < 16) {
+    if (value.length < 16) ElMessage.warning('请输入有效的 DeepSeek API Key')
+    return
+  }
+  savingDeepseek.value = true
+  try {
+    await settingsStore.saveSettings({ deepseek_api_key: value })
+    deepseekApiKey.value = ''
+    ElMessage.success('DeepSeek Key 已加密保存在本机')
+  } catch {
+    ElMessage.error('DeepSeek Key 保存失败，原配置保持不变。')
+  } finally {
+    savingDeepseek.value = false
+  }
+}
+
+async function clearDeepseekKey() {
+  try {
+    await ElMessageBox.confirm('清除后将无法生成新的 AI 持仓复盘。', '清除 DeepSeek Key', {
+      confirmButtonText: '确认清除', cancelButtonText: '取消', type: 'warning',
+    })
+  } catch { return }
+  savingDeepseek.value = true
+  try {
+    await settingsStore.saveSettings({ clear_deepseek_api_key: true })
+    deepseekApiKey.value = ''
+    ElMessage.success('DeepSeek Key 已清除')
+  } catch {
+    ElMessage.error('清除失败，原配置保持不变。')
+  } finally {
+    savingDeepseek.value = false
+  }
+}
+
+async function testDeepseekConnection() {
+  if (testingDeepseek.value) return
+  testingDeepseek.value = true
+  try {
+    const response = await api.post('/ai/deepseek/test', undefined, {
+      timeout: 60000,
+      suppressErrorCodes: ['ai_not_configured', 'ai_timeout', 'ai_rate_limited', 'ai_unavailable', 'ai_response_invalid'],
+    })
+    ElMessage.success(`连接成功：${response.data.model}`)
+  } catch (error) {
+    const code = error?.response?.data?.detail?.error_code
+    const message = {
+      ai_not_configured: '请先保存 DeepSeek API Key。',
+      ai_timeout: 'DeepSeek 响应超时，请稍后重试。',
+      ai_rate_limited: '请求过于频繁，请稍后重试。',
+      ai_response_invalid: 'DeepSeek 返回内容无法验证。',
+    }[code] || 'DeepSeek 暂时不可用，请检查 Key 或稍后重试。'
+    ElMessage.error(message)
+  } finally {
+    testingDeepseek.value = false
+  }
+}
+
 async function createBackup() { await api.post('/operations/backup'); ElMessage.success('备份已创建并校验') }
 
 onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(() => {}) })
@@ -116,6 +179,26 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
     <DataState v-else-if="request.error.value && !request.hasData.value" kind="error" title="暂时无法加载设置" :description="request.error.value" action-label="重新加载" @action="loadSettings" />
 
     <div v-else class="settings-stack">
+      <section v-if="aiReviewAvailable" class="panel" aria-labelledby="deepseek-settings-title">
+        <header class="panel__header">
+          <div><h2 id="deepseek-settings-title" class="panel__title">DeepSeek 持仓复盘</h2><span class="panel-hint">第一版固定使用 DeepSeek，不会自动交易</span></div>
+          <el-tag :type="settingsStore.deepseekApiKeyConfigured ? 'success' : 'info'">{{ settingsStore.deepseekApiKeyConfigured ? '已配置' : '未配置' }}</el-tag>
+        </header>
+        <div class="panel__body settings-body">
+          <p class="ai-disclosure">生成复盘时，目标持仓的近期行情、止损数据和聚合风险事实会发送给 DeepSeek。API Key 仅加密保存在当前 Windows 用户的本机，不进入数据库、日志或备份。</p>
+          <label class="deepseek-key-field">
+            <span>{{ settingsStore.deepseekApiKeyConfigured ? '替换 API Key' : 'API Key' }}</span>
+            <small>保存后不会再次显示原文；连接检测不会发送任何持仓数据。</small>
+            <el-input v-model="deepseekApiKey" type="password" show-password autocomplete="off" aria-label="DeepSeek API Key" placeholder="输入 DeepSeek API Key" />
+          </label>
+          <div class="settings-actions ai-settings-actions">
+            <el-button v-if="settingsStore.deepseekApiKeyConfigured" :loading="testingDeepseek" @click="testDeepseekConnection">检测连接</el-button>
+            <el-button v-if="settingsStore.deepseekApiKeyConfigured" type="danger" plain :loading="savingDeepseek" @click="clearDeepseekKey">清除 Key</el-button>
+            <el-button type="primary" :loading="savingDeepseek" @click="saveDeepseekKey">保存 DeepSeek Key</el-button>
+          </div>
+        </div>
+      </section>
+
       <section v-if="riskSettingsAvailable" class="panel" aria-labelledby="risk-policy-title">
         <header class="panel__header"><div><h2 id="risk-policy-title" class="panel__title">风险预算</h2><span class="panel-hint">账户权益由你手工维护，不代表券商实时余额</span></div></header>
         <div class="panel__body settings-body">
@@ -194,8 +277,13 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
 .number-field { margin-top: 5px; display: flex; align-items: center; gap: 8px; }
 .number-field em { color: var(--color-text-soft); font-size: 12px; font-style: normal; }
 .settings-actions { display: flex; justify-content: flex-end; }
+.ai-disclosure { margin: 0; color: var(--color-text-soft); font-size: 12px; line-height: 1.7; }
+.deepseek-key-field { display: grid; gap: 6px; }
+.deepseek-key-field > span { font-weight: 650; }
+.deepseek-key-field small { color: var(--color-text-muted); font-size: 11px; }
+.ai-settings-actions { gap: 8px; flex-wrap: wrap; }
 .manual-refresh { padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
 .manual-refresh h2 { margin: 0; font-size: 15px; }
 .manual-refresh p { margin: 5px 0 0; color: var(--color-text-soft); font-size: 12px; }
-@media (max-width: 767px) { .preset-grid, .advanced-settings, .risk-settings-grid { grid-template-columns: 1fr; } .preset-card { min-height: 110px; } .settings-actions .el-button { width: 100%; } .manual-refresh { align-items: stretch; flex-direction: column; } }
+@media (max-width: 767px) { .preset-grid, .advanced-settings, .risk-settings-grid { grid-template-columns: 1fr; } .preset-card { min-height: 110px; } .settings-actions .el-button { width: 100%; } .ai-settings-actions { flex-direction: column-reverse; } .manual-refresh { align-items: stretch; flex-direction: column; } }
 </style>

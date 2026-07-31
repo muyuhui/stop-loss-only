@@ -53,6 +53,8 @@ export default async function globalSetup() {
         STOP_LOSS_BACKEND_PORT: backendPort,
         STOP_LOSS_SCHEDULER_ENABLED: '0',
         STOP_LOSS_FIXTURE_PRICE: '8.8',
+        STOP_LOSS_FIXTURE_HISTORY_POINTS: '60',
+        STOP_LOSS_DEEPSEEK_FIXTURE: '1',
         STOP_LOSS_NETWORK_SENTINEL: '1',
         STOP_LOSS_NETWORK_ALLOW_LOOPBACK: '1',
         STOP_LOSS_TEMP_DIR: runRoot,

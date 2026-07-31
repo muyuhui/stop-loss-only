@@ -57,7 +57,8 @@
       "risk_covered_position_creation": false,
       "position_lifecycle_writes": false,
       "csv_portability": true,
-      "webhook_delivery": true
+      "webhook_delivery": true,
+      "ai_holding_reviews": true
     }
   },
   "risk_plan_preview": {
@@ -94,6 +95,40 @@
     "post_plan_holding_risk": "910",
     "post_plan_portfolio_used_risk": "910",
     "required_capital": "8005"
+  },
+  "ai_holding_review": {
+    "summary": "近期行情与既定止损风险保持可控。",
+    "action": "continue_observing",
+    "reasons": [
+      {
+        "text": "持仓仍处于持有状态。",
+        "facts": [
+          {
+            "fact_id": "holding.status",
+            "label": "持仓状态",
+            "value": "持有中",
+            "as_of": "2026-07-30T07:00:00Z",
+            "source": "holding"
+          }
+        ]
+      }
+    ],
+    "risk_scenarios": [
+      {
+        "condition": "价格继续接近既定止损线",
+        "impact": "优先执行既定风险处置计划",
+        "facts": []
+      }
+    ],
+    "limitations": ["不包含新闻、财报、行业研究和未来价格预测"],
+    "confidence": "medium",
+    "can_open_add_on_preview": false,
+    "current_quote_state": "close",
+    "current_quote_at": "2026-07-30T07:00:00Z",
+    "history_last_trade_date": "2026-07-30",
+    "generated_at": "2026-07-30T07:01:00Z",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash"
   },
   "refresh": {
     "cycle_id": "fixture-cycle-v2",

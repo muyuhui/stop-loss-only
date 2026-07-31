@@ -5,6 +5,11 @@
     "portfolio_risk_limit_pct": "5.00",
     "default_position_risk_limit_pct": "1.00"
   },
+  "ai_review_storage": {
+    "review_records": "not_persisted",
+    "credentials": "outside_sqlite",
+    "allowed_cache_table": "price_history"
+  },
   "holdings": [
     {
       "id": 101,

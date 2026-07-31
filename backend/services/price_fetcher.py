@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from config import config
 from services.fixture_adapters import FixtureCalendar, FixtureQuoteProvider
@@ -29,7 +29,17 @@ def _history_rows(frame, date_column: str, price_column: str, source: str) -> li
 def fetch_price_history(code: str, asset_type: str, start_date: date, end_date: date) -> list[dict]:
     """Fetch normalized daily close/NAV history from AkShare."""
     if config.fixture_price is not None:
-        return [{"trade_date": end_date, "price": to_decimal(config.fixture_price), "source": "fixture"}]
+        available_days = max(1, (end_date - start_date).days + 1)
+        point_count = min(max(1, config.fixture_history_points), available_days)
+        first_date = end_date - timedelta(days=point_count - 1)
+        return [
+            {
+                "trade_date": first_date + timedelta(days=index),
+                "price": to_decimal(config.fixture_price),
+                "source": "fixture",
+            }
+            for index in range(point_count)
+        ]
     import akshare as ak
 
     start, end = start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")

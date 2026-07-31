@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import api, { requestHoldingHistory, requestPriceRefresh } from '../api'
+import api, { refreshErrorMessage, requestHoldingHistory, requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
 import HoldingPriceChart from '../components/HoldingPriceChart.vue'
 import { formatAssetMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
@@ -12,10 +12,12 @@ import { summarizeRefresh } from '../utils/refreshResult'
 import { useRequestState } from '../utils/requestState'
 import { quoteTrust } from '../utils/quoteTrust'
 import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
+import { useSettingsStore } from '../stores/settings'
 
 const route = useRoute()
 const router = useRouter()
 const runtimeCapabilities = useRuntimeCapabilitiesStore()
+const settingsStore = useSettingsStore()
 const holding = ref({})
 const editMode = ref(false)
 const saving = ref(false)
@@ -29,6 +31,9 @@ const historyRange = ref('3m')
 const historyLoading = ref(false)
 const historyError = ref('')
 let historyRequestId = 0
+const aiReview = ref(null)
+const aiReviewError = ref('')
+const aiReviewPhase = ref('')
 const editForm = reactive({ name: '', stop_loss_method: '', stop_loss_value: null })
 
 const priceMeta = computed(() => priceInputMeta(holding.value.type))
@@ -39,6 +44,20 @@ const addOnPlanningAvailable = computed(() => (
   holding.value.status === 'holding'
   && runtimeCapabilities.isAvailable('risk_plan_previews')
 ))
+const aiReviewAvailable = computed(() => (
+  holding.value.status && holding.value.status !== 'closed'
+  && runtimeCapabilities.isAvailable('ai_holding_reviews')
+))
+const aiReviewLoading = computed(() => Boolean(aiReviewPhase.value))
+const aiActionLabel = computed(() => ({
+  execute_existing_stop: '执行既定止损',
+  pause_add_on: '暂停加仓',
+  continue_observing: '继续观察',
+  review_risk_exposure: '重新评估风险暴露',
+  open_add_on_preview: '可进一步试算加仓风险',
+  refresh_data: '先补齐或刷新数据',
+}[aiReview.value?.action] || '复盘完成'))
+const aiConfidenceLabel = computed(() => ({ high: '高', medium: '中', low: '低' }[aiReview.value?.confidence] || '--'))
 
 function openAddOnPlan() {
   router.push({ path: '/planner', query: { mode: 'add-on', holding_id: String(holding.value.id) } })
@@ -56,6 +75,43 @@ async function load() {
     void loadHistory()
   } catch {
     request.fail('持仓详情加载失败，请返回列表或重试。')
+  }
+}
+
+function aiErrorMessage(error) {
+  const code = error?.response?.data?.detail?.error_code
+  return {
+    ai_not_configured: '请先在设置中配置 DeepSeek API Key。',
+    ai_review_busy: '该持仓正在生成复盘，请稍后再试。',
+    market_data_not_ready: '当前行情不可用于复盘，请重新刷新。',
+    history_data_unavailable: '近期历史行情暂时不可用。',
+    ai_timeout: 'DeepSeek 响应超时，请稍后重试。',
+    ai_rate_limited: 'DeepSeek 请求过于频繁，请稍后重试。',
+    ai_response_invalid: 'DeepSeek 返回了无法验证的结果，请重试。',
+  }[code] || 'AI 复盘暂时不可用，请稍后重试。'
+}
+
+async function runAIReview() {
+  if (aiReviewLoading.value || !holding.value.id) return
+  aiReview.value = null
+  aiReviewError.value = ''
+  try {
+    aiReviewPhase.value = 'refresh'
+    await requestPriceRefresh({ holding_id: String(holding.value.id) })
+    aiReviewPhase.value = 'history'
+    await load()
+    aiReviewPhase.value = 'analysis'
+    const response = await api.post(`/ai/holdings/${holding.value.id}/review`, undefined, {
+      timeout: 75000,
+      suppressErrorCodes: ['ai_not_configured', 'ai_review_busy', 'market_data_not_ready', 'history_data_unavailable', 'ai_timeout', 'ai_rate_limited', 'ai_unavailable', 'ai_response_invalid'],
+    })
+    aiReview.value = response.data
+  } catch (error) {
+    aiReviewError.value = error?.response?.data?.detail?.error_code?.startsWith('refresh_')
+      ? refreshErrorMessage(error)
+      : aiErrorMessage(error)
+  } finally {
+    aiReviewPhase.value = ''
   }
 }
 
@@ -145,7 +201,9 @@ function methodLabel(method) {
   return { fixed: '固定价格', percentage: '百分比', trailing: '移动（追踪）' }[method] || method
 }
 
-onMounted(load)
+onMounted(async () => {
+  await Promise.all([load(), settingsStore.fetchSettings()])
+})
 </script>
 
 <template>
@@ -181,6 +239,36 @@ onMounted(load)
         @range-change="loadHistory"
         @retry="loadHistory()"
       />
+
+      <section v-if="aiReviewAvailable" class="panel ai-review-panel" aria-labelledby="ai-review-title">
+        <header class="panel__header">
+          <div><h2 id="ai-review-title" class="panel__title">AI 持仓复盘</h2><span class="panel-hint">基于近期行情、止损与风险预算，只做风险解释</span></div>
+          <el-tag type="info">DeepSeek</el-tag>
+        </header>
+        <div class="ai-review-body">
+          <template v-if="!settingsStore.deepseekApiKeyConfigured">
+            <div class="ai-empty"><p>配置 DeepSeek 后可复盘近期行情与持仓风险。</p><el-button type="primary" plain @click="router.push('/settings')">前往设置</el-button></div>
+          </template>
+          <template v-else>
+            <ol v-if="aiReviewLoading" class="ai-progress" aria-label="AI 复盘进度">
+              <li :class="{ active: aiReviewPhase === 'refresh', done: aiReviewPhase !== 'refresh' }">刷新当前行情</li>
+              <li :class="{ active: aiReviewPhase === 'history', done: aiReviewPhase === 'analysis' }">补齐近 90 天行情</li>
+              <li :class="{ active: aiReviewPhase === 'analysis' }">生成结构化复盘</li>
+            </ol>
+            <div v-if="aiReviewError" class="ai-error"><p>{{ aiReviewError }}</p><el-button plain @click="runAIReview">重新复盘</el-button></div>
+            <div v-if="aiReview" class="ai-result">
+              <div class="ai-result__summary"><span>{{ aiActionLabel }}</span><strong>{{ aiReview.summary }}</strong><small>可信程度：{{ aiConfidenceLabel }}</small></div>
+              <section><h3>主要依据</h3><ul><li v-for="(reason, index) in aiReview.reasons" :key="`reason-${index}`"><p>{{ reason.text }}</p><small v-for="fact in reason.facts" :key="fact.fact_id">{{ fact.label }}：{{ fact.value ?? '未知' }}</small></li></ul></section>
+              <section v-if="aiReview.risk_scenarios?.length"><h3>风险情景</h3><ul><li v-for="(scenario, index) in aiReview.risk_scenarios" :key="`scenario-${index}`"><strong>{{ scenario.condition }}</strong><p>{{ scenario.impact }}</p></li></ul></section>
+              <section><h3>数据局限</h3><ul><li v-for="item in aiReview.limitations" :key="item">{{ item }}</li></ul></section>
+              <p class="ai-meta">行情 {{ formatTime(aiReview.current_quote_at) }} · 历史截至 {{ aiReview.history_last_trade_date }} · 生成于 {{ formatTime(aiReview.generated_at) }} · DeepSeek · {{ aiReview.model }}</p>
+              <p class="ai-advisory">复盘不是收益预测或交易指令；系统不会自动修改止损、加减仓或下单。</p>
+              <el-button v-if="aiReview.can_open_add_on_preview && addOnPlanningAvailable" type="primary" plain @click="openAddOnPlan">进入加仓风险试算</el-button>
+            </div>
+            <div class="ai-review-actions"><el-button type="primary" :loading="aiReviewLoading" @click="runAIReview">{{ aiReview ? '重新复盘' : '更新行情并 AI 复盘' }}</el-button></div>
+          </template>
+        </div>
+      </section>
 
       <section class="panel" aria-labelledby="stop-settings-title">
         <header class="panel__header">
@@ -256,6 +344,25 @@ onMounted(load)
 .danger-zone { padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fffafa; border: 1px solid #efcfcc; border-radius: 12px; }
 .danger-zone h2 { margin: 0; color: var(--color-danger); font-size: 15px; }
 .danger-zone p { margin: 5px 0 0; color: var(--color-text-soft); font-size: 12px; }
+.ai-review-body { padding: 0 20px 20px; display: grid; gap: 16px; }
+.ai-empty, .ai-error { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--color-text-soft); }
+.ai-empty p, .ai-error p { margin: 0; }
+.ai-progress { margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; list-style: none; counter-reset: progress; }
+.ai-progress li { min-height: 42px; padding: 10px; color: var(--color-text-muted); background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: 7px; font-size: 12px; }
+.ai-progress li.active { color: var(--color-brand); border-color: var(--color-brand); font-weight: 700; }
+.ai-progress li.done { color: var(--color-success); }
+.ai-result { display: grid; gap: 16px; }
+.ai-result__summary { padding-left: 14px; display: grid; gap: 5px; border-left: 4px solid var(--color-brand); }
+.ai-result__summary span { color: var(--color-brand); font-size: 12px; font-weight: 700; }
+.ai-result__summary strong { font-size: 18px; line-height: 1.5; }
+.ai-result__summary small, .ai-meta, .ai-advisory { color: var(--color-text-muted); font-size: 11px; }
+.ai-result section { display: grid; gap: 8px; }
+.ai-result h3 { margin: 0; font-size: 13px; }
+.ai-result ul { margin: 0; padding-left: 20px; display: grid; gap: 8px; color: var(--color-text-soft); }
+.ai-result li p { margin: 0; line-height: 1.6; }
+.ai-result li small { margin-right: 12px; color: var(--color-text-muted); }
+.ai-meta, .ai-advisory { margin: 0; line-height: 1.7; }
+.ai-review-actions { display: flex; justify-content: flex-end; }
 @media (max-width: 1023px) { .detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stop-settings-view { grid-template-columns: repeat(2, minmax(0, 1fr)); } .edit-form { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 767px) {
   .detail-heading { align-items: start; }
@@ -271,5 +378,9 @@ onMounted(load)
   .close-form { align-items: stretch; flex-direction: column; padding: 16px; }
   .close-form :deep(.el-input-number) { width: 100%; }
   .danger-zone { align-items: stretch; flex-direction: column; }
+  .ai-review-body { padding: 0 16px 16px; }
+  .ai-empty, .ai-error { align-items: stretch; flex-direction: column; }
+  .ai-progress { grid-template-columns: 1fr; }
+  .ai-review-actions .el-button, .ai-result > .el-button { width: 100%; min-height: 44px; }
 }
 </style>

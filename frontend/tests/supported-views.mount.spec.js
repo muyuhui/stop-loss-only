@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import api, { requestHoldingHistory } from '../src/api'
+import api, { requestHoldingHistory, requestPriceRefresh } from '../src/api'
 import Dashboard from '../src/views/Dashboard.vue'
 import HoldingDetail from '../src/views/HoldingDetail.vue'
 import Settings from '../src/views/Settings.vue'
@@ -30,6 +30,25 @@ const holdingData = {
   stop_loss_price: 9, stop_loss_distance_pct: 18, profit_loss_pct: 10, status: 'holding',
   quote_state: 'live', is_actionable: true, updated_at: '2026-07-24T08:00:00Z',
 }
+const aiReviewData = {
+  summary: '近期行情与风险保持可控。', action: 'open_add_on_preview',
+  reasons: [{ text: '风险容量仍为正。', facts: [{ fact_id: 'risk.portfolio_remaining', label: '组合剩余风险容量', value: '800', source: 'risk_budget' }] }],
+  risk_scenarios: [{ condition: '价格接近止损', impact: '执行既定止损计划', facts: [] }],
+  limitations: ['不包含新闻、财报和未来价格预测'], confidence: 'medium',
+  can_open_add_on_preview: true, current_quote_state: 'live', current_quote_at: '2026-07-30T06:55:00Z',
+  history_last_trade_date: '2026-07-30', generated_at: '2026-07-30T07:00:00Z',
+  provider: 'deepseek', model: 'deepseek-v4-flash',
+}
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
 const stubs = {
   DataState: { props: ['title'], template: '<div>{{ title }}</div>' },
@@ -39,7 +58,10 @@ const stubs = {
   ElTable: { template: '<div><slot /></div>' },
   ElTableColumn: { data: () => ({ row: dashboardData.holdings[0] }), template: '<div><slot :row="row" /></div>' },
   ElInputNumber: true,
-  ElInput: true,
+  ElInput: {
+    props: ['modelValue'], emits: ['update:modelValue'],
+    template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  },
   ElSelect: { template: '<select><slot /></select>' },
   ElOption: true,
   ElForm: { template: '<form><slot /></form>' },
@@ -65,7 +87,7 @@ async function mountAt(component, path, routes = [], capabilities = null) {
   }
   const wrapper = mount(component, { global: { plugins: [pinia, router], stubs } })
   await flushPromises()
-  return { wrapper, router }
+  return { wrapper, router, pinia }
 }
 
 beforeEach(() => {
@@ -266,6 +288,229 @@ describe('受支持视图真实挂载', () => {
     await wrapper.findAll('button').find(button => button.text() === '保存并应用').trigger('click')
     await flushPromises()
     expect(api.put).toHaveBeenCalledWith('/settings', { poll_interval: 30, monitor_interval: 5 })
+  })
+
+  it('Settings 为 DeepSeek 提供不回显的配置、检测和清除操作', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: false,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    api.put.mockResolvedValue({ data: {
+      poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: true,
+    } })
+    api.post.mockResolvedValue({ data: {
+      provider: 'deepseek', model: 'deepseek-v4-flash', status: 'ok',
+    } })
+    const { wrapper } = await mountAt(Settings, '/settings', [], { ai_holding_reviews: true })
+    expect(wrapper.text()).toContain('DeepSeek 持仓复盘')
+    expect(wrapper.text()).toContain('目标持仓的近期行情')
+    await wrapper.get('input[aria-label="DeepSeek API Key"]').setValue('sk-component-test-secret')
+    await wrapper.findAll('button').find(button => button.text() === '保存 DeepSeek Key').trigger('click')
+    await flushPromises()
+    expect(api.put).toHaveBeenCalledWith('/settings', { deepseek_api_key: 'sk-component-test-secret' })
+    expect(wrapper.text()).toContain('已配置')
+    await wrapper.findAll('button').find(button => button.text() === '检测连接').trigger('click')
+    await flushPromises()
+    expect(api.post).toHaveBeenCalledWith('/ai/deepseek/test', undefined, expect.any(Object))
+  })
+
+  it('HoldingDetail 未配置 DeepSeek 时引导设置且不请求复盘', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: false,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper, router } = await mountAt(
+      HoldingDetail,
+      '/holdings/:id',
+      [{ path: '/settings', component: { template: '<p>设置</p>' } }],
+      { ai_holding_reviews: true },
+    )
+    expect(wrapper.text()).toContain('配置 DeepSeek 后可复盘')
+    await wrapper.findAll('button').find(button => button.text() === '前往设置').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/settings')
+    expect(api.post.mock.calls.some(([path]) => path.includes('/review'))).toBe(false)
+  })
+
+  it('HoldingDetail 按顺序刷新行情并展示结构化 AI 复盘', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: true,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    api.post.mockImplementation((path) => {
+      if (path === '/ai/holdings/12/review') return Promise.resolve({ data: aiReviewData })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper, router } = await mountAt(
+      HoldingDetail,
+      '/holdings/:id',
+      [{ path: '/planner', component: { template: '<p>风险试算</p>' } }],
+      { ai_holding_reviews: true, risk_plan_previews: true },
+    )
+    const button = wrapper.findAll('button').find(item => item.text() === '更新行情并 AI 复盘')
+    expect(button).toBeTruthy()
+    await button.trigger('click')
+    await flushPromises()
+    expect(requestPriceRefresh).toHaveBeenCalledWith({ holding_id: '12' })
+    expect(api.post).toHaveBeenCalledWith('/ai/holdings/12/review', undefined, expect.any(Object))
+    expect(wrapper.text()).toContain('近期行情与风险保持可控。')
+    expect(wrapper.text()).toContain('风险容量仍为正。')
+    expect(wrapper.text()).toContain('不包含新闻、财报和未来价格预测')
+    expect(wrapper.text()).toContain('DeepSeek · deepseek-v4-flash')
+    const planner = wrapper.findAll('button').find(item => item.text() === '进入加仓风险试算')
+    await planner.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/planner')
+  })
+
+  it('HoldingDetail 在能力晚到后显示配置引导', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: false,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper, pinia } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(wrapper.text()).not.toContain('AI 持仓复盘')
+
+    useRuntimeCapabilitiesStore(pinia).apply({
+      authority_stage: 'legacy', stable_runtime_supported: true,
+      capabilities: { ai_holding_reviews: true },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('AI 持仓复盘')
+    expect(wrapper.text()).toContain('配置 DeepSeek 后可复盘')
+  })
+
+  it('HoldingDetail 展示三个阶段并阻止重复提交', async () => {
+    const refresh = deferred()
+    const reload = deferred()
+    const review = deferred()
+    let holdingLoads = 0
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') {
+        holdingLoads += 1
+        return holdingLoads === 1 ? Promise.resolve({ data: holdingData }) : reload.promise
+      }
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: true,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    requestPriceRefresh.mockReturnValue(refresh.promise)
+    api.post.mockImplementation((path) => (
+      path === '/ai/holdings/12/review' ? review.promise : Promise.resolve({ data: {} })
+    ))
+    const { wrapper } = await mountAt(
+      HoldingDetail, '/holdings/:id', [], { ai_holding_reviews: true },
+    )
+    const button = wrapper.findAll('button').find(item => item.text() === '更新行情并 AI 复盘')
+
+    await button.trigger('click')
+    await button.trigger('click')
+    expect(requestPriceRefresh).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.ai-progress li')[0].classes()).toContain('active')
+
+    refresh.resolve({ data: {} })
+    await flushPromises()
+    expect(wrapper.findAll('.ai-progress li')[1].classes()).toContain('active')
+
+    reload.resolve({ data: holdingData })
+    await flushPromises()
+    expect(wrapper.findAll('.ai-progress li')[2].classes()).toContain('active')
+    expect(api.post.mock.calls.filter(([path]) => path.includes('/review'))).toHaveLength(1)
+
+    review.resolve({ data: aiReviewData })
+    await flushPromises()
+    expect(wrapper.text()).toContain('近期行情与风险保持可控。')
+  })
+
+  it('HoldingDetail 在超时后可重试且保留核心持仓操作', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: true,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    requestPriceRefresh.mockResolvedValue({ data: {} })
+    api.post
+      .mockRejectedValueOnce({ response: { data: { detail: { error_code: 'ai_timeout' } } } })
+      .mockResolvedValueOnce({ data: aiReviewData })
+    const { wrapper } = await mountAt(
+      HoldingDetail, '/holdings/:id', [], { ai_holding_reviews: true },
+    )
+
+    await wrapper.findAll('button').find(item => item.text() === '更新行情并 AI 复盘').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('DeepSeek 响应超时')
+    expect(wrapper.text()).toContain('修改止损')
+    expect(wrapper.text()).toContain('手动平仓')
+
+    await wrapper.findAll('button').find(item => item.text() === '重新复盘').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('近期行情与风险保持可控。')
+  })
+
+  it('HoldingDetail 突出已触发止损且离开页面后不保留复盘', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: { ...holdingData, status: 'triggered' } })
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: true,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    requestPriceRefresh.mockResolvedValue({ data: {} })
+    api.post.mockResolvedValue({ data: {
+      ...aiReviewData, summary: '止损已触发，应按既定计划处置。',
+      action: 'execute_existing_stop', can_open_add_on_preview: false,
+    } })
+    const first = await mountAt(
+      HoldingDetail, '/holdings/:id', [],
+      { ai_holding_reviews: true, risk_plan_previews: true },
+    )
+    await first.wrapper.findAll('button').find(item => item.text() === '更新行情并 AI 复盘').trigger('click')
+    await flushPromises()
+    expect(first.wrapper.text()).toContain('执行既定止损')
+    expect(first.wrapper.text()).not.toContain('进入加仓风险试算')
+    first.wrapper.unmount()
+
+    const second = await mountAt(
+      HoldingDetail, '/holdings/:id', [],
+      { ai_holding_reviews: true, risk_plan_previews: true },
+    )
+    expect(second.wrapper.text()).not.toContain('止损已触发，应按既定计划处置。')
+  })
+
+  it('HoldingDetail 在风险试算能力关闭时隐藏 AI 加仓入口', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/settings') return Promise.resolve({ data: {
+        poll_interval: 30, monitor_interval: 5, deepseek_api_key_configured: true,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    requestPriceRefresh.mockResolvedValue({ data: {} })
+    api.post.mockResolvedValue({ data: aiReviewData })
+    const { wrapper } = await mountAt(
+      HoldingDetail, '/holdings/:id', [],
+      { ai_holding_reviews: true, risk_plan_previews: false },
+    )
+    await wrapper.findAll('button').find(item => item.text() === '更新行情并 AI 复盘').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('可进一步试算加仓风险')
+    expect(wrapper.text()).not.toContain('进入加仓风险试算')
+    expect(wrapper.text()).toContain('复盘不是收益预测或交易指令')
   })
 
   it('Dashboard 对全部未定价持仓显示风险待定并避免虚假零距离', async () => {

@@ -30,6 +30,15 @@ def test_schema_v2_and_api_fixtures_are_privacy_safe_and_representative():
     assert api["risk_plan_preview"]["recommended_quantity"] == "400"
     assert api["risk_add_on_preview"]["plan_kind"] == "add_on"
     assert api["risk_add_on_preview"]["holding"]["stop_loss_price"] == "9.0000"
+    assert api["runtime_capabilities"]["capabilities"]["ai_holding_reviews"] is True
+    assert api["ai_holding_review"]["action"] == "continue_observing"
+    assert api["ai_holding_review"]["provider"] == "deepseek"
+    assert api["ai_holding_review"]["reasons"][0]["facts"][0]["fact_id"] == "holding.status"
+    assert schema["ai_review_storage"] == {
+        "review_records": "not_persisted",
+        "credentials": "outside_sqlite",
+        "allowed_cache_table": "price_history",
+    }
     stored_unpriced = next(row for row in schema["holdings"] if row["id"] == 103)
     assert stored_unpriced["current_price"] == "0.0000"
     assert stored_unpriced["quote_state"] == "unpriced"

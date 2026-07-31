@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import os
 from pathlib import Path
+from uuid import uuid4
 
 from config import config
 
@@ -21,8 +22,15 @@ def set_secret(name: str, value: str) -> None:
         import win32crypt
     except ImportError as exc:
         raise ValueError("machine_secret_storage_unavailable") from exc
-    protected = win32crypt.CryptProtectData(value.encode("utf-8"), None, None, None, None, 0)[1]
-    _path(name).write_bytes(base64.b64encode(protected))
+    protected = win32crypt.CryptProtectData(value.encode("utf-8"), None, None, None, None, 0)
+    path = _path(name)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_bytes(base64.b64encode(protected))
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def get_secret(name: str) -> str | None:

@@ -11,6 +11,7 @@ export const CLOSED_CAPABILITIES = Object.freeze({
   position_lifecycle_writes: false,
   csv_portability: false,
   webhook_delivery: false,
+  ai_holding_reviews: false,
 })
 
 export const useRuntimeCapabilitiesStore = defineStore('runtime-capabilities', () => {

@@ -9,6 +9,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const portfolioRiskLimitPct = ref('5')
   const defaultPositionRiskLimitPct = ref('1')
   const portfolioEquityUpdatedAt = ref(null)
+  const deepseekApiKeyConfigured = ref(false)
 
   function apply(data) {
     pollInterval.value = data.poll_interval || 30
@@ -17,6 +18,7 @@ export const useSettingsStore = defineStore('settings', () => {
     portfolioRiskLimitPct.value = data.portfolio_risk_limit_pct ?? '5'
     defaultPositionRiskLimitPct.value = data.default_position_risk_limit_pct ?? '1'
     portfolioEquityUpdatedAt.value = data.portfolio_equity_updated_at
+    deepseekApiKeyConfigured.value = data.deepseek_api_key_configured === true
   }
 
   async function fetchSettings() {
@@ -37,6 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   return {
     pollInterval, monitorInterval, portfolioEquity, portfolioRiskLimitPct,
-    defaultPositionRiskLimitPct, portfolioEquityUpdatedAt, fetchSettings, saveSettings,
+    defaultPositionRiskLimitPct, portfolioEquityUpdatedAt, deepseekApiKeyConfigured,
+    fetchSettings, saveSettings,
   }
 })

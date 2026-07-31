@@ -169,3 +169,101 @@ test('legacy 风险试算、刷新触发、告警查看与手动平仓', async (
   await expect(page.locator('.el-message--error')).toHaveCount(0)
   await assertPageIntegrity(page, browserErrors)
 })
+
+test('DeepSeek 设置、成功复盘、受限加仓入口与失败重试', async ({ page }, testInfo) => {
+  const browserErrors = []
+  page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`))
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`)
+  })
+
+  await page.route('**/api/runtime/capabilities', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    payload.capabilities.risk_plan_previews = false
+    await route.fulfill({ response, json: payload })
+  })
+
+  await page.request.put('/api/settings', { data: {
+    clear_deepseek_api_key: true,
+    portfolio_equity: 100000,
+    portfolio_risk_limit_pct: 5,
+    default_position_risk_limit_pct: 1,
+  } })
+  const holdingName = `AI复盘-${testInfo.project.name}`
+  const created = await page.request.post('/api/holdings', { data: {
+    code: '000003', name: holdingName, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 8,
+  } })
+  expect(created.ok()).toBe(true)
+  const holdingId = (await created.json()).id
+
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: 'DeepSeek 持仓复盘' })).toBeVisible()
+  await expect(page.getByText('未配置', { exact: true })).toBeVisible()
+  await expect(page.getByText(/目标持仓的近期行情、止损数据和聚合风险事实会发送给 DeepSeek/)).toBeVisible()
+  const successKey = 'fixture-ai-add-on-key'
+  await page.getByLabel('DeepSeek API Key').fill(successKey)
+  const saveResponsePromise = page.waitForResponse((response) => (
+    response.url().endsWith('/api/settings') && response.request().method() === 'PUT'
+  ))
+  await page.getByRole('button', { name: '保存 DeepSeek Key' }).click()
+  const savePayload = await (await saveResponsePromise).text()
+  expect(savePayload).not.toContain(successKey)
+  await expect(page.getByText('已配置', { exact: true })).toBeVisible()
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith('/api/ai/deepseek/test')),
+    page.getByRole('button', { name: '检测连接' }).click(),
+  ])
+  await expect(page.getByText(/连接成功：fixture-deepseek/)).toBeVisible()
+  await assertPageIntegrity(page, browserErrors)
+
+  await page.goto(`/holdings/${holdingId}`)
+  await expect(page.getByRole('heading', { name: holdingName })).toBeVisible()
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith(`/api/ai/holdings/${holdingId}/review`)),
+    page.getByRole('button', { name: '更新行情并 AI 复盘' }).click(),
+  ])
+  await expect(page.getByText('近期行情与止损风险已完成复盘。')).toBeVisible()
+  await expect(page.getByText('可进一步试算加仓风险', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '主要依据' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '风险情景' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '数据局限' })).toBeVisible()
+  await expect(page.getByText(/可信程度：中/)).toBeVisible()
+  await expect(page.getByText(/历史截至/)).toBeVisible()
+  await expect(page.getByText(/DeepSeek · fixture-deepseek/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '进入加仓风险试算' })).toHaveCount(0)
+  await expect(page.getByText(/复盘不是收益预测或交易指令/)).toBeVisible()
+  await assertPageIntegrity(page, browserErrors)
+
+  const failedKey = 'fixture-ai-timeout-key'
+  const failedSetting = await page.request.put('/api/settings', {
+    data: { deepseek_api_key: failedKey },
+  })
+  expect(failedSetting.ok()).toBe(true)
+  expect(await failedSetting.text()).not.toContain(failedKey)
+  const failedReview = page.waitForResponse((response) => (
+    response.url().endsWith(`/api/ai/holdings/${holdingId}/review`)
+    && response.status() === 504
+  ))
+  await page.getByRole('button', { name: '重新复盘' }).last().click()
+  await failedReview
+  await expect(page.getByText(/DeepSeek 响应超时/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '修改止损' })).toBeVisible()
+  await expect(page.getByText('手动平仓', { exact: true })).toBeVisible()
+  expect(browserErrors).toEqual([
+    expect.stringContaining('server responded with a status of 504'),
+  ])
+  browserErrors.length = 0
+  await assertPageIntegrity(page, browserErrors)
+
+  await page.request.put('/api/settings', { data: { deepseek_api_key: successKey } })
+  await Promise.all([
+    page.waitForResponse((response) => (
+      response.url().endsWith(`/api/ai/holdings/${holdingId}/review`) && response.ok()
+    )),
+    page.getByRole('button', { name: '重新复盘' }).click(),
+  ])
+  await expect(page.getByText('近期行情与止损风险已完成复盘。')).toBeVisible()
+  await assertPageIntegrity(page, browserErrors)
+})

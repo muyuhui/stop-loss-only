@@ -14,6 +14,7 @@ CapabilityName = Literal[
     "position_lifecycle_writes",
     "csv_portability",
     "webhook_delivery",
+    "ai_holding_reviews",
 ]
 
 
@@ -27,6 +28,7 @@ class RuntimeCapabilities:
     position_lifecycle_writes: bool = False
     csv_portability: bool = False
     webhook_delivery: bool = False
+    ai_holding_reviews: bool = False
 
 
 @dataclass(frozen=True)
@@ -41,12 +43,14 @@ _POLICIES = {
         legacy_holding_writes=True,
         risk_budget_reads=True,
         risk_plan_previews=True,
+        ai_holding_reviews=True,
     ),
     "shadow-read": RuntimeCapabilities(
         legacy_holding_writes=True,
         shadow_diagnostics=True,
         risk_budget_reads=True,
         risk_plan_previews=True,
+        ai_holding_reviews=True,
     ),
     # The stable application still rejects this stage at readiness. These flags
     # describe only the isolated APIs that already exist for migration testing.

@@ -21,6 +21,7 @@ class AppConfig:
     readiness_timeout_seconds: int = int(os.getenv("STOP_LOSS_READINESS_TIMEOUT", "20"))
     shutdown_timeout_seconds: int = int(os.getenv("STOP_LOSS_SHUTDOWN_TIMEOUT", "30"))
     fixture_price: str | None = os.getenv("STOP_LOSS_FIXTURE_PRICE")
+    fixture_history_points: int = int(os.getenv("STOP_LOSS_FIXTURE_HISTORY_POINTS", "1"))
     temp_dir: Path = Path(os.getenv("STOP_LOSS_TEMP_DIR", str(BASE_DIR.parent / ".tmp")))
     provider_connect_timeout_seconds: float = float(os.getenv("STOP_LOSS_PROVIDER_CONNECT_TIMEOUT", "3"))
     # AkShare's ETF spot endpoint may take more than 30 seconds for a cold
@@ -31,6 +32,10 @@ class AppConfig:
     provider_circuit_cooldown_seconds: int = int(os.getenv("STOP_LOSS_PROVIDER_CIRCUIT_COOLDOWN", "60"))
     calendar_cache_seconds: int = int(os.getenv("STOP_LOSS_CALENDAR_CACHE_SECONDS", "86400"))
     refresh_lock_timeout_seconds: float = float(os.getenv("STOP_LOSS_REFRESH_LOCK_TIMEOUT", "2"))
+    deepseek_model: str = os.getenv("STOP_LOSS_DEEPSEEK_MODEL", "deepseek-v4-flash")
+    deepseek_connect_timeout_seconds: float = float(os.getenv("STOP_LOSS_DEEPSEEK_CONNECT_TIMEOUT", "5"))
+    deepseek_total_timeout_seconds: float = float(os.getenv("STOP_LOSS_DEEPSEEK_TOTAL_TIMEOUT", "45"))
+    deepseek_fixture_enabled: bool = os.getenv("STOP_LOSS_DEEPSEEK_FIXTURE", "0") == "1"
 
 
 config = AppConfig()

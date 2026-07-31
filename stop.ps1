@@ -29,6 +29,75 @@ function Stop-VerifiedTree([int]$RootPid) {
     Stop-Process -Id $RootPid -Force -ErrorAction SilentlyContinue
 }
 
+function Test-ProjectProcessCommand([string]$Kind, [int]$ProcessId, [int]$Port) {
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
+    $command = [string]$process.CommandLine
+    if (-not $command) { return $false }
+
+    $portPattern = "--port(?:=|\s+)$Port(?:\s|`"|$)"
+    if ($command -notmatch $portPattern) { return $false }
+
+    if ($Kind -eq 'backend') {
+        return $command -match '(?i)\buvicorn(?:\.exe)?\b.*\bmain:app\b'
+    }
+
+    $rootPattern = [regex]::Escape($root)
+    return ($command -match '(?i)(?:\b|[/\\])vite(?:\.js|\.mjs|\.cmd|\.exe)?(?:\b|[/\\])') -and
+        ($command -match $rootPattern)
+}
+
+function Test-ProjectService([string]$Kind, [int]$Port) {
+    try {
+        if ($Kind -eq 'backend') {
+            $openApi = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/openapi.json" -TimeoutSec 2
+            $pathNames = @($openApi.paths.PSObject.Properties.Name)
+            return ($pathNames -contains '/api/holdings') -and
+                ($pathNames -contains '/api/prices/refresh')
+        }
+
+        $page = Invoke-WebRequest -Uri "http://127.0.0.1:$Port" -UseBasicParsing -TimeoutSec 2
+        return ($page.StatusCode -eq 200) -and ($page.Content -match '/@vite/client')
+    } catch {
+        return $false
+    }
+}
+
+function Wait-PortReleased([int]$Port) {
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+        if (-not $listener) { return $true }
+        Start-Sleep -Milliseconds 100
+    }
+    return $false
+}
+
+function Stop-OrphanedProjectListener([string]$Kind, [int]$Port) {
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
+    if ($listeners.Count -eq 0) { return $true }
+
+    $ownerPids = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+    if ($ownerPids.Count -ne 1) {
+        Write-Warning "Port $Port could not be verified as this project's $Kind service; no listener was terminated."
+        return $false
+    }
+
+    $ownerPid = [int]$ownerPids[0]
+    $commandConfirmed = Test-ProjectProcessCommand $Kind $ownerPid $Port
+    $serviceConfirmed = Test-ProjectService $Kind $Port
+    if (-not ($commandConfirmed -and $serviceConfirmed)) {
+        Write-Warning "PID $ownerPid on port $Port could not be verified as this project's $Kind service; it was not terminated."
+        return $false
+    }
+
+    Write-Host "Recovering orphaned $Kind service on port $Port (PID $ownerPid)." -ForegroundColor Yellow
+    Stop-VerifiedTree $ownerPid
+    if (-not (Wait-PortReleased $Port)) {
+        Write-Warning "Verified $Kind service PID $ownerPid was stopped, but port $Port is still in use."
+        return $false
+    }
+    return $true
+}
+
 function Stop-OwnedProcess([string]$RecordName) {
     $recordPath = Join-Path $root $RecordName
     if (-not (Test-Path -LiteralPath $recordPath)) { return }
@@ -110,4 +179,9 @@ Stop-OwnedProcess '.backend.process.json'
 Stop-OwnedProcess '.frontend.process.json'
 Stop-LegacyRecordedProcess '.backend.pid' 'backend' $BackendPort
 Stop-LegacyRecordedProcess '.frontend.pid' 'frontend' $FrontendPort
+$backendStopped = Stop-OrphanedProjectListener 'backend' $BackendPort
+$frontendStopped = Stop-OrphanedProjectListener 'frontend' $FrontendPort
+if (-not $backendStopped -or -not $frontendStopped) {
+    throw 'One or more configured ports are still occupied by processes that were not safely verified.'
+}
 Write-Host 'Verified project processes stopped; logs and unrelated processes were preserved.' -ForegroundColor Green

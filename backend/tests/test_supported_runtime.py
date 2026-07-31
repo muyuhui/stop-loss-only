@@ -123,6 +123,7 @@ def test_runtime_capabilities_are_stage_aware(
             "position_lifecycle_writes": False,
             "csv_portability": False,
             "webhook_delivery": False,
+            "ai_holding_reviews": stage in {"legacy", "shadow-read"},
         },
     }
 

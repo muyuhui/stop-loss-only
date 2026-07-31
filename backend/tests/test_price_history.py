@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -8,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from database import Base
 from models import Holding, PriceHistory
 from services.market_clock import MARKET_TZ
+from services.price_fetcher import fetch_price_history
 from services.price_history import HistoryUnavailable, holding_history
 
 
@@ -34,6 +36,22 @@ def rows():
         {"trade_date": date(2026, 7, 19), "price": Decimal("12"), "source": "fixture-history"},
         {"trade_date": date(2026, 7, 20), "price": Decimal("10.5"), "source": "fixture-history"},
     ]
+
+
+def test_offline_fixture_can_supply_a_full_ai_analysis_window(monkeypatch):
+    monkeypatch.setattr(
+        "services.price_fetcher.config",
+        SimpleNamespace(fixture_price="8.8", fixture_history_points=60),
+    )
+
+    result = fetch_price_history(
+        "000001", "stock", date(2026, 5, 1), date(2026, 7, 30)
+    )
+
+    assert len(result) == 60
+    assert result[0]["trade_date"] < result[-1]["trade_date"]
+    assert result[-1]["trade_date"] == date(2026, 7, 30)
+    assert {item["source"] for item in result} == {"fixture"}
 
 
 def test_history_cache_is_deduplicated_and_shared(monkeypatch):

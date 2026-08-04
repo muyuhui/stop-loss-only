@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -89,20 +89,47 @@ def create_holding(data: HoldingCreate, db: Session = Depends(get_db)):
 @router.get("", response_model=HoldingPage)
 def list_holdings(
     status_filter: str | None = Query(None, alias="status", pattern="^(holding|triggered|closed)$"),
+    asset_type: str | None = Query(None, alias="type", pattern="^(stock|fund)$"),
+    search: str | None = Query(None, max_length=100),
+    sort: str = Query("newest", pattern="^(newest|name|risk)$"),
     page: int = Query(1, ge=1), size: int = Query(50, ge=1, le=200), db: Session = Depends(get_db),
 ):
+    term = search.strip() if search else ""
     if authority(db).stage == "new-authoritative":
         rows = db.query(Position).order_by(Position.created_at.desc(), Position.id.desc()).all()
         items = [position_holding_payload(db, row) for row in rows]
         if status_filter:
             items = [item for item in items if item["status"] == status_filter]
+        if asset_type:
+            items = [item for item in items if item["type"] == asset_type]
+        if term:
+            items = [item for item in items if term in item["name"] or term in item["code"]]
+        if sort == "name":
+            items = sorted(items, key=lambda item: (item["name"], item["id"]))
+        elif sort == "risk":
+            items = sorted(items, key=lambda item: (item["stop_loss_distance_pct"] is None, item["stop_loss_distance_pct"], item["id"]))
         total = len(items)
         return {"items": items[(page - 1) * size: page * size], "total": total, "page": page, "size": size}
     query = db.query(Holding)
     if status_filter:
         query = query.filter(Holding.status == status_filter)
+    if asset_type:
+        query = query.filter(Holding.type == asset_type)
+    if term:
+        query = query.filter(or_(
+            Holding.name.contains(term, autoescape=True),
+            Holding.code.contains(term, autoescape=True),
+        ))
+    if sort == "name":
+        order = (Holding.name.asc(), Holding.id.asc())
+    elif sort == "risk":
+        valued = case((Holding.current_price > 0, 0), else_=1)
+        distance = case((Holding.current_price > 0, (Holding.current_price - Holding.stop_loss_price) / Holding.current_price), else_=None)
+        order = (valued.asc(), distance.asc(), Holding.id.asc())
+    else:
+        order = (Holding.created_at.desc(), Holding.id.desc())
     total = query.count()
-    items = query.order_by(Holding.created_at.desc(), Holding.id.desc()).offset((page - 1) * size).limit(size).all()
+    items = query.order_by(*order).offset((page - 1) * size).limit(size).all()
     return {"items": [holding_payload(item) for item in items], "total": total, "page": page, "size": size}
 
 

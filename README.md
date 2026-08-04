@@ -16,6 +16,12 @@
 - 后端：Python、FastAPI、SQLAlchemy、SQLite、APScheduler、akshare
 - 前端：Vue 3、Element Plus、Pinia、Vite
 
+## 环境要求
+
+- Python 3.12 或更高版本，`python` 需在 PATH 中（`setup.ps1` 会预检版本）。
+- Node.js 20.19+ 与 npm 7+（前端依赖通过 `npm ci` 安装）。
+- openspec CLI（`npm install -g @fission-ai/openspec`）：仅运行完整验证门禁 `.\verify.ps1` 时需要；`setup.ps1` 会预检其可用性。
+
 ## 安装
 
 依赖安装与服务启动相互独立：
@@ -174,9 +180,11 @@ python backend/db_admin.py restore <backup.db> <manifest.json>
 - DeepSeek 首次返回的 JSON 若不符合结构或引用了不存在的事实，后端会携带完整输出契约和脱敏错误位置自动纠正一次，因此单次复盘最多可能产生两次 Provider 调用。纠正不会放宽本地事实校验，不会记录模型原文，也不会产生持仓、止损或订单写入。
 - Provider 固定为 DeepSeek 官方 HTTPS API，第一版不支持其他 Provider 或自定义 Base URL。默认模型和超时可由应用环境配置维护，但不会在设置页开放任意地址。
 
-### v4 回滚
+### 回滚
 
 1. 先运行 `./stop.ps1`，再使用 `./backup.ps1` 创建可恢复备份。
-2. 在 `backend` 目录运行 `python db_admin.py downgrade`，将迁移版本从 4 回退为 3。
-3. 回退应用代码并重新启动。v4 新增列、索引和 `monitoring_cycles` 表会保留，旧代码会忽略它们，避免破坏诊断历史。
+2. 在 `backend` 目录运行 `python db_admin.py status` 确认当前迁移版本，再运行 `python db_admin.py downgrade` 将迁移版本回退一级。
+3. 回退应用代码并重新启动。downgrade 是非破坏性的：新增列、索引和表会保留，旧代码会忽略它们，避免破坏诊断历史。
 4. 若需恢复数据，保持后端停止并使用 `./restore.ps1 -Backup <backup.db> -Manifest <backup.json>`。
+
+最新 schema 版本以 `backend/migrations.py` 的 `LATEST_SCHEMA_VERSION` 为准，本说明不硬编码具体版本号。

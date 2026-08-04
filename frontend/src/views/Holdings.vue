@@ -4,15 +4,16 @@ import { useRouter } from 'vue-router'
 import api from '../api'
 import DataState from '../components/DataState.vue'
 import HoldingForm from '../components/HoldingForm.vue'
+import HoldingsToolbar from '../components/HoldingsToolbar.vue'
 import { formatAssetMoney, formatSignedPercent, stopLossRisk, valueTone } from '../utils/format'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 import { formatQuoteFreshness, quoteFreshnessText } from '../utils/market'
+import { DEFAULT_HOLDINGS_SORT, loadHoldingsSort, saveHoldingsSort } from '../utils/holdingsQuery'
 import { useRequestState } from '../utils/requestState'
 
 const holdings = ref([])
 const total = ref(0)
-const page = ref(1)
-const size = ref(20)
+const query = ref({ page: 1, size: 20, sort: loadHoldingsSort() })
 const dialogVisible = ref(false)
 const request = useRequestState()
 const router = useRouter()
@@ -20,7 +21,12 @@ const router = useRouter()
 async function load() {
   request.begin()
   try {
-    const res = await api.get('/holdings', { params: { page: page.value, size: size.value } })
+    const params = { page: query.value.page, size: query.value.size }
+    if (query.value.sort && query.value.sort !== DEFAULT_HOLDINGS_SORT) params.sort = query.value.sort
+    if (query.value.search) params.search = query.value.search
+    if (query.value.status) params.status = query.value.status
+    if (query.value.type) params.type = query.value.type
+    const res = await api.get('/holdings', { params })
     holdings.value = res.data.items || []
     total.value = res.data.total || 0
     request.succeed()
@@ -29,9 +35,26 @@ async function load() {
   }
 }
 
+function applyQuery(next) {
+  query.value = next
+  saveHoldingsSort(query.value.sort)
+  load()
+}
+
+function resetFilters() {
+  query.value = { page: 1, size: query.value.size, sort: DEFAULT_HOLDINGS_SORT }
+  saveHoldingsSort(query.value.sort)
+  load()
+}
+
+function onPageChange(value) {
+  query.value.page = value
+  load()
+}
+
 function onCreated() {
   dialogVisible.value = false
-  page.value = 1
+  query.value.page = 1
   load()
 }
 
@@ -50,6 +73,10 @@ onMounted(load)
         <p class="page-subtitle">查看价格与止损距离，快速进入单笔持仓</p>
       </div>
       <el-button type="primary" @click="dialogVisible = true">新增持仓</el-button>
+    </div>
+
+    <div class="holdings-filters">
+      <HoldingsToolbar :query="query" :total="total" @update:query="applyQuery" @reset="resetFilters" />
     </div>
 
     <div v-if="request.error.value && request.hasData.value" class="status-strip is-warning">
@@ -102,7 +129,7 @@ onMounted(load)
       </div>
     </section>
 
-    <el-pagination v-if="total > size" v-model:current-page="page" v-model:page-size="size" :total="total" layout="prev, pager, next, total" class="holdings-pagination" @current-change="load" />
+    <el-pagination v-if="total > query.size" :current-page="query.page" :page-size="query.size" :total="total" layout="prev, pager, next, total" class="holdings-pagination" @current-change="onPageChange" />
 
     <el-dialog v-model="dialogVisible" title="新增持仓" width="560px" destroy-on-close>
       <HoldingForm @success="onCreated" @cancel="dialogVisible = false" />
@@ -111,6 +138,7 @@ onMounted(load)
 </template>
 
 <style scoped>
+.holdings-filters { margin-bottom: 12px; }
 .holdings-panel { overflow: hidden; }
 .holdings-table { padding: 8px 18px 16px; }
 .identity, .cell-stack { display: grid; gap: 4px; }

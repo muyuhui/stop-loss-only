@@ -462,3 +462,44 @@ test('测试通知在权限拒绝时禁用且显示重新授权指引', async ({
   expect(await page.evaluate(() => window.__notifications.created.length)).toBe(0)
   await assertPageIntegrity(page, browserErrors)
 })
+
+test('持仓搜索、风险排序与移动端工具栏', async ({ page }, testInfo) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  const tag = testInfo.project.name
+  const nameA = `搜索排序A-${tag}`
+  const nameB = `搜索排序B-${tag}`
+  for (const [name, code, stop] of [
+    [nameA, '000021', 8],
+    [nameB, '000022', 7.5],
+  ]) {
+    const created = await page.request.post('/api/holdings', { data: {
+      code, name, type: 'stock', buy_price: 10, quantity: 100,
+      buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: stop,
+    } })
+    expect(created.ok()).toBe(true)
+  }
+  const refresh = await page.request.post('/api/prices/refresh')
+  expect(refresh.ok()).toBe(true)
+
+  await page.goto('/holdings')
+  const searchInput = page.getByPlaceholder('搜索名称或代码')
+  await searchInput.fill(nameA)
+  await expect.poll(async () => page.locator('.position-card').count()).toBe(1)
+  await expect(page.locator('.position-card').first()).toContainText(nameA)
+  await expect(page.locator('.filter-toolbar small')).toContainText('1 条')
+
+  // 收窄到本测试的种子（共享 e2e.db 可能已累积其他持仓，避免排序结果溢出到第 2 页）
+  await searchInput.fill('搜索排序')
+  await expect.poll(async () => page.locator('.position-card').count()).toBeGreaterThanOrEqual(2)
+
+  await page.locator('.filter-toolbar .el-select').nth(2).click()
+  await page.getByRole('option', { name: '风险优先' }).click()
+  await expect.poll(async () => {
+    const texts = await page.locator('.position-card').evaluateAll((cards) => cards.map((card) => card.textContent ?? ''))
+    const indexA = texts.findIndex((text) => text.includes(nameA))
+    const indexB = texts.findIndex((text) => text.includes(nameB))
+    return indexA >= 0 && indexB >= 0 ? indexA < indexB : null
+  }).toBe(true)
+  await assertPageIntegrity(page, browserErrors)
+})

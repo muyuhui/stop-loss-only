@@ -6,6 +6,7 @@ import DataState from '../components/DataState.vue'
 import HoldingForm from '../components/HoldingForm.vue'
 import { formatAssetMoney, formatSignedPercent, stopLossRisk, valueTone } from '../utils/format'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
+import { formatQuoteFreshness, quoteFreshnessText } from '../utils/market'
 import { useRequestState } from '../utils/requestState'
 
 const holdings = ref([])
@@ -70,7 +71,7 @@ onMounted(load)
             <template #default="{ row }"><div class="cell-stack number"><strong>{{ row.quantity }} 份</strong><span>成本 {{ formatAssetMoney(row.buy_price, row.type) }}</span></div></template>
           </el-table-column>
           <el-table-column label="当前表现" min-width="160">
-            <template #default="{ row }"><div class="cell-stack number"><strong>{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</span></div></template>
+            <template #default="{ row }"><div class="cell-stack number"><strong>{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</span><span class="quote-freshness">{{ quoteFreshnessText(row.quoted_at) }}</span></div></template>
           </el-table-column>
           <el-table-column label="止损风险" min-width="195">
             <template #default="{ row }"><div class="cell-stack number"><strong>{{ formatAssetMoney(row.stop_loss_price, row.type) }} · {{ methodLabel(row.stop_loss_method) }}</strong><span :class="`risk-${stopLossRisk(row.stop_loss_distance_pct, row.status).level}`">{{ stopLossRisk(row.stop_loss_distance_pct, row.status).label }} {{ formatSignedPercent(row.stop_loss_distance_pct) }}</span></div></template>
@@ -87,7 +88,7 @@ onMounted(load)
       <div v-if="holdings.length" class="mobile-only mobile-list">
         <button v-for="row in holdings" :key="row.id" type="button" class="position-card" @click="router.push(`/holdings/${row.id}`)">
           <span class="position-card__header">
-            <span><strong>{{ row.name }}</strong><small>{{ row.code }} · {{ methodLabel(row.stop_loss_method) }}</small></span>
+            <span><strong>{{ row.name }}</strong><small>{{ row.code }} · {{ methodLabel(row.stop_loss_method) }} · {{ formatQuoteFreshness(row.quoted_at) || '未定价' }}</small></span>
             <el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag>
           </span>
           <span class="position-card__metrics">
@@ -116,6 +117,7 @@ onMounted(load)
 .identity span, .cell-stack span { color: var(--color-text-muted); font-size: 12px; }
 .cell-stack .tone-profit { color: var(--color-profit); }
 .cell-stack .tone-loss { color: var(--color-loss); }
+.quote-freshness { color: var(--color-text-muted); font-size: 11px; }
 .risk-danger { color: var(--color-danger) !important; }
 .risk-warning { color: var(--color-warning) !important; }
 .risk-safe { color: var(--color-success) !important; }

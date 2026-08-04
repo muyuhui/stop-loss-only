@@ -43,6 +43,22 @@ class Holding(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class StopRuleHistory(Base):
+    """止损规则调整的只读审计快照：自包含代码/名称，随持仓删除保留。"""
+    __tablename__ = "stop_rule_history"
+    __table_args__ = (Index("ix_stop_rule_history_holding", "holding_id", "id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    holding_id = Column(Integer, nullable=False, index=True)
+    code = Column(String(20), nullable=False)
+    name = Column(String(100), nullable=False)
+    stop_loss_method = Column(String(20), nullable=False)
+    stop_loss_value = Column(Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=False)
+    stop_loss_price = Column(Numeric(PRICE_PRECISION, PRICE_SCALE), nullable=False)
+    source = Column(String(20), nullable=False)
+    changed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class PriceHistory(Base):
     __tablename__ = "price_history"
     __table_args__ = (

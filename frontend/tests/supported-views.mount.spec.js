@@ -316,6 +316,39 @@ describe('受支持视图真实挂载', () => {
     expect(api.post).toHaveBeenCalledWith('/ai/deepseek/test', undefined, expect.any(Object))
   })
 
+  it('HoldingDetail 展示止损调整记录时间线', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/holdings/12/stop-history') return Promise.resolve({ data: { items: [
+        { id: 2, stop_loss_method: 'percentage', stop_loss_value: 10, stop_loss_price: 9, source: 'update', changed_at: '2026-07-30T06:00:00Z' },
+        { id: 1, stop_loss_method: 'fixed', stop_loss_value: 9, stop_loss_price: 9, source: 'create', changed_at: '2026-07-24T08:00:00Z' },
+      ] } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(wrapper.text()).toContain('止损调整记录')
+    expect(wrapper.text()).toContain('创建')
+    expect(wrapper.text()).toContain('调整')
+    expect(wrapper.text()).toContain('百分比 10%')
+    expect(wrapper.text()).toContain('固定价格 9 元')
+    expect(wrapper.text()).toContain('止损价 ¥9.00')
+  })
+
+  it('HoldingDetail 止损历史为空或加载失败时降级且不崩溃', async () => {
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(wrapper.text()).toContain('暂无止损调整记录')
+
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
+      if (path === '/holdings/12/stop-history') return Promise.reject(new Error('offline'))
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper: failed } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(failed.text()).toContain('无法加载止损调整记录')
+    expect(failed.text()).toContain('权威持仓')
+  })
+
   it('HoldingDetail 未配置 DeepSeek 时引导设置且不请求复盘', async () => {
     api.get.mockImplementation((path) => {
       if (path === '/holdings/12') return Promise.resolve({ data: holdingData })
@@ -534,6 +567,27 @@ describe('受支持视图真实挂载', () => {
     expect(card.text()).toContain('风险未知')
     expect(card.text()).not.toContain('0.00%')
     wrapper.unmount()
+  })
+
+  it('Dashboard 展示交易时段徽标且状态缺失时降级', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100, market_session: 'open' } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/')
+    expect(wrapper.text()).toContain('交易中')
+
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper: degraded } = await mountAt(Dashboard, '/')
+    expect(degraded.text()).not.toContain('交易中')
+    expect(degraded.text()).toContain('权威持仓')
   })
 
   it('Dashboard 在空组合覆盖率未知时显示暂无活动持仓', async () => {

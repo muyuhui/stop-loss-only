@@ -83,6 +83,28 @@ export function sendTriggerNotification(alert, { onClick } = {}) {
 }
 
 /**
+ * 发送一条明确标注为测试的浏览器通知，用于验证通知/声音管道。
+ * 不创建告警、不调用 API、不写入任何业务事实；点击无副作用。
+ * 发送前校验 Notification.permission；权限未授予时静默返回 false。
+ */
+export function sendTestNotification({ playSound = false } = {}) {
+  const Notification = globalThis.Notification
+  if (!Notification || Notification.permission !== 'granted') return false
+  const title = '止损不止盈测试通知'
+  const body = '测试持仓(000001) 当前价 9.80 触及止损价 9.00 —— 验证通知与提示音管道。'
+  try {
+    const notification = new Notification(title, { body, tag: 'test' })
+    notification.onclick = () => {
+      // 测试通知点击无副作用：不跳转、不标记已读、不改变业务状态
+    }
+    if (playSound) playTriggerChime()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * 短促的双音提示，使用 Web Audio 振荡器，不打包音频资源。
  * 默认关闭，由设置页声音开关控制。失败时静默返回 false。
  */

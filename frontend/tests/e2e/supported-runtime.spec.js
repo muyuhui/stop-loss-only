@@ -371,3 +371,41 @@ test('通知权限被拒绝时不创建浏览器通知且未读徽标仍在', as
   expect(await page.evaluate(() => window.__notifications.created.length)).toBe(0)
   await assertPageIntegrity(page, browserErrors)
 })
+
+test('测试通知在权限已授予时创建样本通知且不产生业务写入', async ({ page }) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  await installNotificationStub(page, true)
+  const businessWrites = []
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.url().includes('/api/')) {
+      businessWrites.push(`${request.method()} ${request.url()}`)
+    }
+  })
+
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: '设置' })).toBeVisible()
+  await page.getByRole('button', { name: '发送测试通知', exact: true }).click()
+
+  await expect.poll(async () => (
+    page.evaluate(() => window.__notifications.created.length)
+  ), { timeout: 10_000 }).toBe(1)
+  const record = await page.evaluate(() => window.__notifications.created[0])
+  expect(record.title).toContain('测试')
+  expect(record.options.tag).toBe('test')
+  expect(businessWrites).toEqual([])
+  await assertPageIntegrity(page, browserErrors)
+})
+
+test('测试通知在权限拒绝时禁用且显示重新授权指引', async ({ page }) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  await installNotificationStub(page, false)
+
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: '设置' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送测试通知', exact: true })).toBeDisabled()
+  await expect(page.getByText('浏览器站点设置')).toBeVisible()
+  expect(await page.evaluate(() => window.__notifications.created.length)).toBe(0)
+  await assertPageIntegrity(page, browserErrors)
+})

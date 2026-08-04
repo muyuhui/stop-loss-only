@@ -3,8 +3,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Alert, Holding, Position
-from schemas import HoldingClose, HoldingCreate, HoldingHistoryResponse, HoldingPage, HoldingResponse, HoldingUpdate
+from models import Alert, Holding, Position, StopRuleHistory
+from schemas import HoldingClose, HoldingCreate, HoldingHistoryResponse, HoldingPage, HoldingResponse, HoldingUpdate, StopHistoryResponse
 from services.price_history import HistoryUnavailable, holding_history
 from services.presentation import holding_payload, position_holding_payload
 from services.shadow_projection import authority, project_after_legacy_commit
@@ -32,6 +32,38 @@ def _get_holding(db: Session, holding_id: int) -> Holding:
     return holding
 
 
+def _stop_history_row(holding: Holding, source: str) -> StopRuleHistory:
+    """止损规则调整的只读审计快照；与业务提交同一事务。"""
+    return StopRuleHistory(
+        holding_id=holding.id, code=holding.code, name=holding.name,
+        stop_loss_method=holding.stop_loss_method,
+        stop_loss_value=holding.stop_loss_value,
+        stop_loss_price=holding.stop_loss_price,
+        source=source,
+    )
+
+
+@router.get("/{holding_id}/stop-history", response_model=StopHistoryResponse)
+def get_stop_history(
+    holding_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(StopRuleHistory)
+        .filter(StopRuleHistory.holding_id == holding_id)
+        .order_by(StopRuleHistory.changed_at.desc(), StopRuleHistory.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"items": [{
+        "id": row.id, "stop_loss_method": row.stop_loss_method,
+        "stop_loss_value": float(row.stop_loss_value),
+        "stop_loss_price": float(row.stop_loss_price),
+        "source": row.source, "changed_at": row.changed_at,
+    } for row in rows]}
+
+
 @router.post("", response_model=HoldingResponse, status_code=201)
 def create_holding(data: HoldingCreate, db: Session = Depends(get_db)):
     _legacy_writable(db)
@@ -47,6 +79,8 @@ def create_holding(data: HoldingCreate, db: Session = Depends(get_db)):
     )
     holding.stop_loss_price = StopLossEngine.calculate(holding.buy_price, holding.highest_price, holding.stop_loss_method, holding.stop_loss_value)
     db.add(holding)
+    db.flush()
+    db.add(_stop_history_row(holding, source="create"))
     _commit_legacy(db)
     db.refresh(holding)
     return holding_payload(holding)
@@ -112,11 +146,15 @@ def update_holding(holding_id: int, data: HoldingUpdate, db: Session = Depends(g
     ok, error = StopLossEngine.validate(holding.buy_price, prospective_method, prospective_value)
     if not ok:
         raise HTTPException(status_code=422, detail=error)
+    method_changed = prospective_method != holding.stop_loss_method
+    value_changed = to_decimal(prospective_value) != holding.stop_loss_value
     if data.name is not None:
         holding.name = data.name.strip()
     holding.stop_loss_method = prospective_method
     holding.stop_loss_value = to_decimal(prospective_value)
     holding.stop_loss_price = StopLossEngine.calculate(holding.buy_price, holding.highest_price, prospective_method, prospective_value)
+    if method_changed or value_changed:
+        db.add(_stop_history_row(holding, source="update"))
     _commit_legacy(db)
     db.refresh(holding)
     return holding_payload(holding)

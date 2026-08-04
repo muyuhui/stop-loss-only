@@ -9,6 +9,7 @@ from database import get_db
 from models import Holding, MonitoringCycle, Setting
 from scheduler import scheduler
 from schemas import MonitoringCyclePage, MonitoringStatusResponse
+from services.market_clock import market_session
 from time_utils import as_utc
 
 
@@ -91,6 +92,7 @@ def _status_payload(db: Session, *, now: datetime | None = None) -> dict:
         "quote_coverage_pct": actionable_coverage,
         "overdue": overdue,
         "reason_code": reason,
+        "market_session": market_session(now).value,
     }
 
 

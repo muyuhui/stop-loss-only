@@ -86,6 +86,19 @@ class HoldingHistoryResponse(BaseModel):
     points: list[HoldingHistoryPoint]
 
 
+class StopHistoryItem(BaseModel):
+    id: int
+    stop_loss_method: str
+    stop_loss_value: float
+    stop_loss_price: float
+    source: Literal["create", "update"]
+    changed_at: datetime
+
+
+class StopHistoryResponse(BaseModel):
+    items: list[StopHistoryItem]
+
+
 class SettingsResponse(BaseModel):
     poll_interval: int
     monitor_interval: int
@@ -502,6 +515,7 @@ class MonitoringStatusResponse(BaseModel):
     quote_coverage_pct: float | None = None
     overdue: bool
     reason_code: str | None = None
+    market_session: Literal["pre_market", "open", "lunch", "closed"]
 
 
 class AlertSummary(BaseModel):

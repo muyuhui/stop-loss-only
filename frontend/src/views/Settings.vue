@@ -14,6 +14,7 @@ import {
   getNotificationPreferences,
   permissionState,
   saveNotificationPreferences,
+  sendTestNotification,
 } from '../utils/notifications'
 
 const settingsStore = useSettingsStore()
@@ -68,6 +69,12 @@ async function toggleNotifications(enabled) {
 
 function toggleSound(enabled) {
   notificationPrefs.value = saveNotificationPreferences({ ...notificationPrefs.value, soundEnabled: enabled })
+}
+
+// 测试通知：仅权限已授予时发送；声音开关开启时同步播放提示音；不产生任何业务事实
+function sendTest() {
+  if (permission.value !== 'granted') return
+  sendTestNotification({ playSound: notificationPrefs.value.soundEnabled })
 }
 
 function selectPreset(id) {
@@ -263,8 +270,13 @@ onMounted(async () => {
               <el-switch :model-value="notificationPrefs.soundEnabled" aria-label="提示音开关" @change="toggleSound" />
             </label>
           </div>
+          <div class="notification-test">
+            <div><strong>发送测试通知</strong><small>立即验证浏览器通知与提示音管道，不产生告警。</small></div>
+            <el-button :disabled="permission !== 'granted'" @click="sendTest">发送测试通知</el-button>
+          </div>
           <p v-if="permission === 'denied'" class="permission-guidance">通知权限已被浏览器拒绝。请在浏览器站点设置中为本站点重新授权通知后，再打开开关重试；未读徽标与提示音不受影响。</p>
           <p v-else-if="permission === 'unsupported'" class="permission-guidance">当前浏览器不支持系统通知；未读徽标仍会在标签标题与告警铃铛上显示。</p>
+          <p v-else-if="permission === 'default'" class="permission-guidance">请先开启系统通知开关完成授权，再发送测试通知。</p>
         </div>
       </section>
 
@@ -353,6 +365,10 @@ onMounted(async () => {
 .notification-option small { color: var(--color-text-muted); font-size: 11px; }
 .notification-option .el-switch { justify-self: start; }
 .permission-guidance { margin: 0; color: var(--color-text-soft); font-size: 12px; line-height: 1.7; }
+.notification-test { padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: 9px; }
+.notification-test div { display: grid; gap: 3px; }
+.notification-test strong { font-size: 13px; }
+.notification-test small { color: var(--color-text-muted); font-size: 11px; }
 .deepseek-key-field { display: grid; gap: 6px; }
 .deepseek-key-field > span { font-weight: 650; }
 .deepseek-key-field small { color: var(--color-text-muted); font-size: 11px; }

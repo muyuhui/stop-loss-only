@@ -78,6 +78,53 @@ def test_update_is_atomic_and_delete_returns_204(api):
     assert client.get(f"/api/holdings/{item['id']}").status_code == 404
 
 
+def test_stop_rule_history_records_create_and_updates(api):
+    client, _, _ = api
+    created = client.post("/api/holdings", json=holding_body()).json()
+    history = client.get(f"/api/holdings/{created['id']}/stop-history").json()
+    assert len(history["items"]) == 1
+    first = history["items"][0]
+    assert first["source"] == "create"
+    assert first["stop_loss_method"] == "fixed"
+    assert first["stop_loss_value"] == 9
+    assert first["stop_loss_price"] == 9
+    assert first["changed_at"]
+
+    updated = client.put(
+        f"/api/holdings/{created['id']}",
+        json={"stop_loss_method": "percentage", "stop_loss_value": 10},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["stop_loss_price"] == 9
+    history = client.get(f"/api/holdings/{created['id']}/stop-history").json()
+    assert len(history["items"]) == 2
+    assert history["items"][0]["source"] == "update"
+    assert history["items"][0]["stop_loss_method"] == "percentage"
+    assert history["items"][0]["stop_loss_value"] == 10
+    assert history["items"][0]["id"] > history["items"][1]["id"]
+    assert history["items"][1]["source"] == "create"
+
+
+def test_stop_rule_history_skips_noop_updates_and_survives_delete(api):
+    client, _, _ = api
+    item = client.post("/api/holdings", json=holding_body()).json()
+    noop = client.put(f"/api/holdings/{item['id']}", json={"stop_loss_method": "fixed", "stop_loss_value": 9})
+    assert noop.status_code == 200
+    history = client.get(f"/api/holdings/{item['id']}/stop-history").json()
+    assert len(history["items"]) == 1
+
+    renamed = client.put(f"/api/holdings/{item['id']}", json={"name": "新名字"})
+    assert renamed.status_code == 200
+    history = client.get(f"/api/holdings/{item['id']}/stop-history").json()
+    assert len(history["items"]) == 1
+
+    assert client.delete(f"/api/holdings/{item['id']}").status_code == 204
+    assert client.get(f"/api/holdings/{item['id']}").status_code == 404
+    history = client.get(f"/api/holdings/{item['id']}/stop-history").json()
+    assert len(history["items"]) == 1
+    assert history["items"][0]["stop_loss_price"] == 9
+
+
 def test_lifecycle_close_and_alert_snapshot(api):
     client, factory, _ = api
     item = client.post("/api/holdings", json=holding_body()).json()

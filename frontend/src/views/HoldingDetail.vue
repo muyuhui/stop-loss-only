@@ -6,6 +6,7 @@ import api, { refreshErrorMessage, requestHoldingHistory, requestPriceRefresh } 
 import DataState from '../components/DataState.vue'
 import HoldingPriceChart from '../components/HoldingPriceChart.vue'
 import { formatAssetMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
+import { formatQuoteFreshness } from '../utils/market'
 import { priceInputMeta, stopLossInputMeta } from '../utils/holdingForm'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 import { summarizeRefresh } from '../utils/refreshResult'
@@ -34,6 +35,8 @@ let historyRequestId = 0
 const aiReview = ref(null)
 const aiReviewError = ref('')
 const aiReviewPhase = ref('')
+const stopHistory = ref([])
+const stopHistoryError = ref('')
 const editForm = reactive({ name: '', stop_loss_method: '', stop_loss_value: null })
 
 const priceMeta = computed(() => priceInputMeta(holding.value.type))
@@ -112,6 +115,17 @@ async function runAIReview() {
       : aiErrorMessage(error)
   } finally {
     aiReviewPhase.value = ''
+  }
+}
+
+async function loadStopHistory() {
+  if (!holding.value.id) return
+  stopHistoryError.value = ''
+  try {
+    const res = await api.get(`/holdings/${route.params.id}/stop-history`)
+    stopHistory.value = res.data.items || []
+  } catch {
+    stopHistoryError.value = '无法加载止损调整记录。'
   }
 }
 
@@ -203,6 +217,7 @@ function methodLabel(method) {
 
 onMounted(async () => {
   await Promise.all([load(), settingsStore.fetchSettings()])
+  void loadStopHistory()
 })
 </script>
 
@@ -224,7 +239,7 @@ onMounted(async () => {
       <div v-if="request.error.value" class="status-strip is-warning"><span>{{ request.error.value }}</span><el-button link @click="load">重试</el-button></div>
 
       <section class="detail-summary" aria-label="持仓风险摘要">
-        <article><span>当前价</span><strong class="number">{{ formatAssetMoney(holding.current_price, holding.type) }}</strong><small :class="`quote-tone--${trust.tone}`">{{ trust.text }}</small></article>
+        <article><span>当前价</span><strong class="number">{{ formatAssetMoney(holding.current_price, holding.type) }}</strong><small :class="`quote-tone--${trust.tone}`">{{ trust.text }} · {{ formatQuoteFreshness(holding.quoted_at) || '未定价' }}</small></article>
         <article><span>未实现盈亏</span><strong class="number" :class="`tone-${valueTone(holding.profit_loss_pct)}`">{{ formatSignedPercent(holding.profit_loss_pct) }}</strong><small>{{ holding.quantity }} 份</small></article>
         <article><span>止损价</span><strong class="number">{{ formatAssetMoney(holding.stop_loss_price, holding.type) }}</strong><small>{{ methodLabel(holding.stop_loss_method) }}</small></article>
         <article :class="`summary-risk--${holdingRisk.level}`"><span>距止损</span><strong class="number">{{ formatSignedPercent(holding.stop_loss_distance_pct) }}</strong><small>{{ holdingRisk.label }}</small></article>
@@ -297,6 +312,22 @@ onMounted(async () => {
         </el-form>
       </section>
 
+      <section class="panel" aria-labelledby="stop-history-title">
+        <header class="panel__header"><div><h2 id="stop-history-title" class="panel__title">止损调整记录</h2><span class="panel-hint">每次创建与修改的只读快照；删除持仓后仍保留</span></div></header>
+        <div class="stop-history-body">
+          <p v-if="stopHistoryError" class="history-muted">{{ stopHistoryError }}</p>
+          <ol v-else-if="stopHistory.length" class="stop-history-list">
+            <li v-for="entry in stopHistory" :key="entry.id">
+              <span class="stop-history__tag" :class="`is-${entry.source}`">{{ entry.source === 'create' ? '创建' : '调整' }}</span>
+              <strong>{{ methodLabel(entry.stop_loss_method) }} {{ entry.stop_loss_value }}{{ entry.stop_loss_method === 'fixed' ? ' 元' : '%' }}</strong>
+              <span>止损价 {{ formatAssetMoney(entry.stop_loss_price, holding.type) }}</span>
+              <small class="number">{{ formatTime(entry.changed_at) }}</small>
+            </li>
+          </ol>
+          <p v-else class="history-muted">暂无止损调整记录。</p>
+        </div>
+      </section>
+
       <section v-if="holding.status !== 'closed'" class="panel" aria-labelledby="close-title">
         <header class="panel__header"><div><h2 id="close-title" class="panel__title">手动平仓</h2><span class="panel-hint">记录实际平仓价格并结束持仓监控</span></div></header>
         <div class="close-form">
@@ -363,6 +394,16 @@ onMounted(async () => {
 .ai-result li small { margin-right: 12px; color: var(--color-text-muted); }
 .ai-meta, .ai-advisory { margin: 0; line-height: 1.7; }
 .ai-review-actions { display: flex; justify-content: flex-end; }
+.stop-history-body { padding: 20px; }
+.stop-history-list { margin: 0; padding: 0; display: grid; gap: 10px; list-style: none; }
+.stop-history-list li { padding: 12px 14px; display: flex; align-items: center; gap: 12px; background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: 9px; }
+.stop-history-list strong { font-size: 13px; }
+.stop-history-list span:not(.stop-history__tag) { color: var(--color-text-soft); font-size: 12px; }
+.stop-history-list small { margin-left: auto; color: var(--color-text-muted); font-size: 11px; }
+.stop-history__tag { padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+.stop-history__tag.is-create { color: var(--color-success); background: var(--color-success-soft); }
+.stop-history__tag.is-update { color: var(--color-brand); background: var(--color-brand-soft); }
+.history-muted { margin: 0; color: var(--color-text-soft); font-size: 12px; }
 @media (max-width: 1023px) { .detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stop-settings-view { grid-template-columns: repeat(2, minmax(0, 1fr)); } .edit-form { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 767px) {
   .detail-heading { align-items: start; }

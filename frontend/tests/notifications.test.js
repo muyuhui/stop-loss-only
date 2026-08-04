@@ -8,6 +8,7 @@ import {
   permissionState,
   playTriggerChime,
   saveNotificationPreferences,
+  sendTestNotification,
   sendTriggerNotification,
 } from '../src/utils/notifications.js'
 
@@ -152,5 +153,72 @@ test('提示音默认依赖环境：无 AudioContext 时静默返回 false', () 
     assert.equal(playTriggerChime(), false)
   } finally {
     globalThis.AudioContext = original
+  }
+})
+
+
+function mockAudioContext() {
+  const original = globalThis.AudioContext
+  function FakeContext() {
+    this.currentTime = 0
+    this.destination = {}
+    this.createOscillator = () => ({
+      type: '', frequency: { value: 0 },
+      connect: () => this.destination, start() {}, stop() {},
+    })
+    this.createGain = () => ({
+      gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+      connect: () => this.destination,
+    })
+  }
+  globalThis.AudioContext = FakeContext
+  return () => { globalThis.AudioContext = original }
+}
+
+test('测试通知：权限已授予时创建含"测试"字样的样本通知且点击无副作用', () => {
+  const { restore } = mockNotification('granted')
+  try {
+    const result = sendTestNotification()
+    assert.equal(result, true)
+    assert.equal(FakeNotification.created.length, 1)
+    const { title, options, onclick } = FakeNotification.created[0]
+    assert.match(title, /测试/)
+    assert.equal(options.tag, 'test')
+    assert.match(options.body, /测试持仓/)
+    assert.doesNotThrow(onclick)
+    assert.equal(FakeNotification.created.length, 1)
+  } finally {
+    restore()
+  }
+})
+
+test('测试通知：playSound 开启时同步触发提示音', () => {
+  const restoreAudio = mockAudioContext()
+  const { restore } = mockNotification('granted')
+  try {
+    assert.equal(sendTestNotification({ playSound: true }), true)
+  } finally {
+    restore()
+    restoreAudio()
+  }
+})
+
+test('测试通知：权限未授予时不创建且返回 false', () => {
+  const { restore } = mockNotification('denied')
+  try {
+    assert.equal(sendTestNotification(), false)
+    assert.equal(FakeNotification.created.length, 0)
+  } finally {
+    restore()
+  }
+})
+
+test('测试通知：环境不支持时静默返回 false', () => {
+  const original = globalThis.Notification
+  delete globalThis.Notification
+  try {
+    assert.equal(sendTestNotification(), false)
+  } finally {
+    globalThis.Notification = original
   }
 })

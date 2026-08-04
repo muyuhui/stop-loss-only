@@ -16,7 +16,7 @@ from database import Base
 import models  # noqa: F401 - 注册 ORM metadata
 
 
-LATEST_SCHEMA_VERSION = 7
+LATEST_SCHEMA_VERSION = 8
 
 
 def sqlite_path(database_url: str) -> Path:
@@ -105,6 +105,9 @@ def upgrade(engine, database_url: str, backup_dir: Path | None = None) -> None:
         # explicit indexes make upgrades from all earlier schemas deterministic.
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_attempt_due ON delivery_attempts(status, next_attempt_at)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_attempt_idempotency ON delivery_attempts(idempotency_key)"))
+        # v8 creates stop_rule_history through metadata above; the explicit index
+        # makes upgrades from all earlier schemas deterministic.
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_stop_rule_history_holding ON stop_rule_history(holding_id, id)"))
         conn.execute(text("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL)"))
         for version in range(1, LATEST_SCHEMA_VERSION + 1):
             conn.execute(text("INSERT OR IGNORE INTO schema_migrations(version) VALUES (:version)"), {"version": version})

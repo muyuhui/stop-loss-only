@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from database import Base
 from migrations import backup_database, current_version, downgrade, restore_database, upgrade
 from models import Alert, Holding, PriceHistory
+from routers.monitoring import _status_payload
 from services.market_clock import MARKET_TZ, is_in_trading_session, normalize_trade_date
 from services.monitoring import run_monitoring_cycle
 
@@ -42,6 +43,23 @@ def test_market_clock_boundaries_and_formats():
     assert is_in_trading_session(datetime(2026, 7, 21, 9, 30, tzinfo=MARKET_TZ))
     assert not is_in_trading_session(datetime(2026, 7, 21, 12, 0, tzinfo=MARKET_TZ))
     assert is_in_trading_session(datetime(2026, 7, 21, 15, 0, tzinfo=MARKET_TZ))
+
+
+def test_status_payload_exposes_market_session_boundaries():
+    db = session()
+    cases = [
+        (datetime(2026, 7, 21, 8, 0, tzinfo=MARKET_TZ), "pre_market"),
+        (datetime(2026, 7, 21, 10, 0, tzinfo=MARKET_TZ), "open"),
+        (datetime(2026, 7, 21, 12, 0, tzinfo=MARKET_TZ), "lunch"),
+        (datetime(2026, 7, 21, 13, 30, tzinfo=MARKET_TZ), "open"),
+        (datetime(2026, 7, 21, 15, 0, tzinfo=MARKET_TZ), "open"),
+        (datetime(2026, 7, 21, 15, 1, tzinfo=MARKET_TZ), "closed"),
+    ]
+    try:
+        for at, expected in cases:
+            assert _status_payload(db, now=at)["market_session"] == expected
+    finally:
+        db.close()
 
 
 def test_one_quote_updates_duplicate_lots_and_triggers_once(monkeypatch):
@@ -91,18 +109,20 @@ def test_legacy_migration_backup_and_restore(tmp_path: Path):
         conn.execute(text("INSERT INTO holdings VALUES (1,'000001','测试','stock',10,100,'2026-01-01',8.8,10,'fixed',9,9,'stopped_out',8.8,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
         conn.execute(text("INSERT INTO alerts VALUES (1,1,9,8.8,0,CURRENT_TIMESTAMP)"))
     upgrade(engine, url, tmp_path / "backups")
-    assert current_version(engine) == 7
+    assert current_version(engine) == 8
     with engine.connect() as conn:
         assert conn.execute(text("SELECT status FROM holdings WHERE id=1")).scalar_one() == "closed"
         assert conn.execute(text("SELECT holding_name FROM alerts WHERE id=1")).scalar_one() == "测试"
         tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
-        assert {"price_history", "monitoring_cycles"}.issubset(tables)
+        assert {"price_history", "monitoring_cycles", "stop_rule_history"}.issubset(tables)
         holding_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(holdings)"))}
         assert {"quote_state", "fresh_until", "is_actionable", "last_cycle_id", "version"}.issubset(holding_columns)
         indexes = {row[1] for row in conn.execute(text("PRAGMA index_list(monitoring_cycles)"))}
         assert "ix_monitoring_cycles_started_status" in indexes
+        history_indexes = {row[1] for row in conn.execute(text("PRAGMA index_list(stop_rule_history)"))}
+        assert "ix_stop_rule_history_holding" in history_indexes
     downgrade(engine)
-    assert current_version(engine) == 6
+    assert current_version(engine) == 7
     with engine.connect() as conn:
         assert conn.execute(text("SELECT status FROM holdings WHERE id=1")).scalar_one() == "closed"
     upgrade(engine, url, tmp_path / "backups")

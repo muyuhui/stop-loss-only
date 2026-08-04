@@ -107,6 +107,44 @@ describe('触发通知设置区', () => {
     expect(wrapper.text()).not.toContain('提示音开关')
   })
 
+  it('权限已授予时点击测试通知创建一条样本通知且不请求权限', async () => {
+    function RecordingNotification(title, options) {
+      RecordingNotification.created.push({ title, options })
+    }
+    RecordingNotification.created = []
+    RecordingNotification.permission = 'granted'
+    RecordingNotification.requestPermission = vi.fn()
+    vi.stubGlobal('Notification', RecordingNotification)
+    const wrapper = await mountSettings({ browser_notifications: true })
+    const button = wrapper.findAll('button').find((item) => item.text() === '发送测试通知')
+    expect(button.attributes('disabled')).toBeUndefined()
+
+    await button.trigger('click')
+
+    expect(RecordingNotification.created).toHaveLength(1)
+    expect(RecordingNotification.created[0].title).toContain('测试')
+    expect(RecordingNotification.created[0].options.tag).toBe('test')
+    expect(RecordingNotification.requestPermission).not.toHaveBeenCalled()
+  })
+
+  it('权限未授予时测试通知按钮禁用且不请求权限', async () => {
+    vi.stubGlobal('Notification', makeNotification('denied'))
+    const wrapper = await mountSettings({ browser_notifications: true })
+    const button = wrapper.findAll('button').find((item) => item.text() === '发送测试通知')
+    expect(button.attributes('disabled')).toBeDefined()
+
+    await button.trigger('click')
+
+    expect(Notification.requestPermission).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('浏览器站点设置')
+  })
+
+  it('权限未设置时提示先开启系统通知', async () => {
+    vi.stubGlobal('Notification', makeNotification('default'))
+    const wrapper = await mountSettings({ browser_notifications: true })
+    expect(wrapper.text()).toContain('请先开启系统通知开关完成授权')
+  })
+
   it('声音开关独立于通知开关且默认关闭', async () => {
     vi.stubGlobal('Notification', makeNotification('granted'))
     const wrapper = await mountSettings({ browser_notifications: true })

@@ -9,6 +9,7 @@ import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { dashboardRiskSummary, sortHoldingsByRisk } from '../utils/dashboard'
 import { formatAssetMoney, formatMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
+import { formatMarketSession, formatQuoteFreshness, quoteFreshnessText } from '../utils/market'
 import { createPoller } from '../utils/poller'
 import { useRequestState } from '../utils/requestState'
 import { monitoringTrust, quoteTrust } from '../utils/quoteTrust'
@@ -127,6 +128,7 @@ onUnmounted(() => poller.stop())
       <div class="monitoring-trust" :class="`monitoring-trust--${monitoringSummary.tone}`" role="status">
         <strong>{{ monitoringSummary.title }}</strong>
         <span>{{ monitoringSummary.detail }}</span>
+        <span v-if="formatMarketSession(monitoring?.market_session)" class="session-badge">{{ formatMarketSession(monitoring?.market_session) }}</span>
       </div>
 
       <div class="coverage-summary" aria-label="行情覆盖率">
@@ -226,7 +228,7 @@ onUnmounted(() => poller.stop())
             </el-table-column>
             <el-table-column label="当前表现" min-width="155">
               <template #default="{ row }">
-                <div class="cell-stack number"><strong>{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`quote-tone--${quoteTrust(row).tone}`">{{ quoteTrust(row).text }}</span></div>
+                <div class="cell-stack number"><strong>{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong><span :class="`quote-tone--${quoteTrust(row).tone}`">{{ quoteTrust(row).text }}</span><span class="quote-freshness">{{ quoteFreshnessText(row.quoted_at) }}</span></div>
               </template>
             </el-table-column>
             <el-table-column label="止损风险" min-width="190">
@@ -245,7 +247,7 @@ onUnmounted(() => poller.stop())
 
         <div v-if="sortedHoldings.length" class="mobile-only mobile-holding-list">
           <button v-for="row in sortedHoldings" :key="row.id" class="holding-card" type="button" @click="router.push(`/holdings/${row.id}`)">
-            <span class="holding-card__header"><span><strong>{{ row.name }}</strong><small>{{ row.code }}</small></span><el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag></span>
+            <span class="holding-card__header"><span><strong>{{ row.name }}</strong><small>{{ row.code }} · {{ formatQuoteFreshness(row.quoted_at) || '未定价' }}</small></span><el-tag :type="holdingStatusTag(row.status)" size="small">{{ holdingStatusLabel(row.status) }}</el-tag></span>
             <span class="holding-card__grid">
               <span><small>当前价 · {{ quoteTrust(row).label }}</small><strong class="number">{{ row.current_price == null ? '未定价' : formatAssetMoney(row.current_price, row.type) }}</strong></span>
               <span><small>盈亏</small><strong class="number" :class="`tone-${valueTone(row.profit_loss_pct)}`">{{ formatSignedPercent(row.profit_loss_pct) }}</strong></span>
@@ -277,6 +279,8 @@ onUnmounted(() => poller.stop())
 .dashboard-stack { display: grid; gap: 16px; }
 .monitoring-trust { padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 9px; font-size: 12px; }
 .monitoring-trust span { color: var(--color-text-soft); }
+.session-badge { padding: 2px 9px; color: var(--color-brand); background: var(--color-brand-soft); border: 1px solid var(--color-brand); border-radius: 999px; font-size: 11px; font-weight: 650; }
+.quote-freshness { color: var(--color-text-muted); font-size: 11px; }
 .monitoring-trust--success { border-left: 4px solid var(--color-success); }
 .monitoring-trust--warning { border-left: 4px solid var(--color-warning); }
 .monitoring-trust--danger { border-left: 4px solid var(--color-danger); }

@@ -3,12 +3,21 @@ import { computed, reactive, ref } from 'vue'
 import api from '../api'
 import { holdingPayload, priceInputMeta, stopLossInputMeta } from '../utils/holdingForm'
 
+const props = defineProps({
+  initialValues: { type: Object, default: () => ({}) },
+})
 const emit = defineEmits(['success', 'cancel'])
 const formRef = ref(null)
 const submitting = ref(false)
 const form = reactive({
-  code: '', name: '', type: 'stock', buy_price: null, quantity: null,
-  buy_date: '', stop_loss_method: 'percentage', stop_loss_value: null,
+  code: props.initialValues.code ?? '',
+  name: props.initialValues.name ?? '',
+  type: props.initialValues.type ?? 'stock',
+  buy_price: props.initialValues.buy_price ?? null,
+  quantity: props.initialValues.quantity ?? null,
+  buy_date: props.initialValues.buy_date ?? '',
+  stop_loss_method: props.initialValues.stop_loss_method ?? 'percentage',
+  stop_loss_value: props.initialValues.stop_loss_value ?? null,
 })
 const priceMeta = computed(() => priceInputMeta(form.type))
 const stopLossMeta = computed(() => stopLossInputMeta(form.stop_loss_method, form.type))
@@ -78,7 +87,9 @@ async function submit() {
         <el-input-number v-model="form.stop_loss_value" :precision="stopLossMeta.precision" :step="stopLossMeta.step" :min="stopLossMeta.min" :controls="false" />
       </el-form-item>
     </div>
-    <p class="form-help">{{ stopLossMeta.help }}</p>
+    <p class="form-help">
+      {{ stopLossMeta.help }}<template v-if="props.initialValues.quantity != null"> 数量已按整数份取整，可调整。</template>
+    </p>
 
     <div class="form-actions">
       <el-button @click="emit('cancel')">取消</el-button>

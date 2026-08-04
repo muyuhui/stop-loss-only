@@ -19,7 +19,10 @@ const stubs = {
     props: ['title', 'description', 'actionLabel'], emits: ['action'],
     template: '<div><strong>{{ title }}</strong><span>{{ description }}</span><button v-if="actionLabel" @click="$emit(\'action\')">{{ actionLabel }}</button></div>',
   },
-  ElButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  ElButton: {
+    props: ['disabled'], emits: ['click'],
+    template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
+  },
   ElInput: {
     inheritAttrs: false, props: ['modelValue'], emits: ['update:modelValue', 'keyup', 'clear'],
     template: '<input v-bind="$attrs" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" @keyup.enter="$emit(\'keyup\', $event)" />',
@@ -43,9 +46,10 @@ async function mountAlerts(initialPath = '/alerts') {
   })
   await router.push(initialPath)
   await router.isReady()
-  const wrapper = mount(Alerts, { global: { plugins: [createPinia(), router], stubs } })
+  const pinia = createPinia()
+  const wrapper = mount(Alerts, { global: { plugins: [pinia, router], stubs } })
   await flushPromises()
-  return { wrapper, router }
+  return { wrapper, router, pinia }
 }
 
 beforeEach(() => {
@@ -102,5 +106,30 @@ describe('告警稳定路由', () => {
     const { wrapper } = await mountAlerts()
     expect(wrapper.text()).not.toContain('Position')
     expect(wrapper.html()).not.toContain('/positions/')
+  })
+
+  it('未读计数成功加载为 0 时禁用全部标记已读', async () => {
+    api.get.mockImplementation((path) => path === '/alerts/count'
+      ? Promise.resolve({ data: { count: 0 } })
+      : Promise.resolve({ data: { items: [alertItem], total: 21 } }))
+    const { wrapper } = await mountAlerts()
+    const markAll = wrapper.findAll('button').find(item => item.text() === '全部标记已读')
+    expect(markAll?.attributes('disabled')).toBeDefined()
+  })
+
+  it('计数未加载或存在未读时不禁用全部标记已读', async () => {
+    api.get.mockImplementation((path) => path === '/alerts/count'
+      ? Promise.reject(new Error('offline'))
+      : Promise.resolve({ data: { items: [alertItem], total: 21 } }))
+    const { wrapper } = await mountAlerts()
+    const failed = wrapper.findAll('button').find(item => item.text() === '全部标记已读')
+    expect(failed?.attributes('disabled')).toBeUndefined()
+
+    api.get.mockImplementation((path) => path === '/alerts/count'
+      ? Promise.resolve({ data: { count: 2 } })
+      : Promise.resolve({ data: { items: [alertItem], total: 21 } }))
+    const { wrapper: withUnread } = await mountAlerts()
+    const enabled = withUnread.findAll('button').find(item => item.text() === '全部标记已读')
+    expect(enabled?.attributes('disabled')).toBeUndefined()
   })
 })

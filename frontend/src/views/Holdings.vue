@@ -1,10 +1,11 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import DataState from '../components/DataState.vue'
 import HoldingForm from '../components/HoldingForm.vue'
 import HoldingsToolbar from '../components/HoldingsToolbar.vue'
+import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { formatAssetMoney, formatSignedPercent, stopLossRisk, valueTone } from '../utils/format'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
 import { formatQuoteFreshness, quoteFreshnessText } from '../utils/market'
@@ -15,8 +16,50 @@ const holdings = ref([])
 const total = ref(0)
 const query = ref({ page: 1, size: 20, sort: loadHoldingsSort() })
 const dialogVisible = ref(false)
+const prefillValues = ref(null)
 const request = useRequestState()
 const router = useRouter()
+const route = useRoute()
+const runtimeCapabilities = useRuntimeCapabilitiesStore()
+
+function prefillFromRoute() {
+  const raw = route.query
+  if (raw.create !== '1') return null
+  if (runtimeCapabilities.loaded && !runtimeCapabilities.isAvailable('legacy_holding_writes')) return null
+  const type = raw.type === 'fund' ? 'fund' : raw.type === 'stock' ? 'stock' : null
+  const code = String(raw.code ?? '').trim()
+  const name = String(raw.name ?? '').trim()
+  const buyPrice = Number(raw.buy_price)
+  const quantity = Number(raw.quantity)
+  const stopValue = Number(raw.stop_value)
+  const stopMethods = ['fixed', 'percentage', 'trailing']
+  const buyDate = /^\d{4}-\d{2}-\d{2}$/.test(String(raw.buy_date ?? '')) ? String(raw.buy_date) : ''
+  if (
+    !type || !code || !name || !Number.isFinite(buyPrice) || buyPrice <= 0
+    || !Number.isInteger(quantity) || quantity < 1
+    || !Number.isFinite(stopValue) || stopValue <= 0 || !stopMethods.includes(raw.stop_method)
+  ) return null
+  return {
+    code, name, type, buy_price: buyPrice, quantity,
+    buy_date: buyDate, stop_loss_method: raw.stop_method, stop_loss_value: stopValue,
+  }
+}
+
+function clearCreateQuery() {
+  if (route.query.create !== '1') return
+  router.replace({ query: {} })
+}
+
+function onDialogCancel() {
+  dialogVisible.value = false
+  prefillValues.value = null
+  clearCreateQuery()
+}
+
+function openCreateDialog() {
+  prefillValues.value = null
+  dialogVisible.value = true
+}
 
 async function load() {
   request.begin()
@@ -54,15 +97,24 @@ function onPageChange(value) {
 
 function onCreated() {
   dialogVisible.value = false
+  prefillValues.value = null
   query.value.page = 1
   load()
+  clearCreateQuery()
 }
 
 function methodLabel(method) {
   return { fixed: '固定价', percentage: '百分比', trailing: '追踪' }[method] || method
 }
 
-onMounted(load)
+onMounted(async () => {
+  const prefill = prefillFromRoute()
+  if (prefill) {
+    prefillValues.value = prefill
+    dialogVisible.value = true
+  }
+  await load()
+})
 </script>
 
 <template>
@@ -72,7 +124,7 @@ onMounted(load)
         <h1 id="holdings-title" class="page-title">持仓管理</h1>
         <p class="page-subtitle">查看价格与止损距离，快速进入单笔持仓</p>
       </div>
-      <el-button type="primary" @click="dialogVisible = true">新增持仓</el-button>
+      <el-button type="primary" @click="openCreateDialog">新增持仓</el-button>
     </div>
 
     <div class="holdings-filters">
@@ -132,7 +184,7 @@ onMounted(load)
     <el-pagination v-if="total > query.size" :current-page="query.page" :page-size="query.size" :total="total" layout="prev, pager, next, total" class="holdings-pagination" @current-change="onPageChange" />
 
     <el-dialog v-model="dialogVisible" title="新增持仓" width="560px" destroy-on-close>
-      <HoldingForm @success="onCreated" @cancel="dialogVisible = false" />
+      <HoldingForm :initial-values="prefillValues || undefined" @success="onCreated" @cancel="onDialogCancel" />
     </el-dialog>
   </section>
 </template>

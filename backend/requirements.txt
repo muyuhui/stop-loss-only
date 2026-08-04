@@ -6,3 +6,4 @@ apscheduler==3.10.4
 akshare==1.18.70
 tzdata==2025.2
 httpx==0.28.1
+pywin32==312

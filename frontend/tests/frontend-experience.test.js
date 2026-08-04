@@ -81,3 +81,10 @@ test('price refresh uses a dedicated timeout longer than ordinary API calls', as
   assert.match(apiSource, /PRICE_REFRESH_TIMEOUT_MS\s*=\s*60000/)
   assert.match(apiSource, /\/prices\/refresh[\s\S]*timeout:\s*PRICE_REFRESH_TIMEOUT_MS/)
 })
+
+test('dashboard asset grid keeps realized P&L without horizontal overflow', async () => {
+  const dashboardSource = await readFile(fileURLToPath(new URL('../src/views/Dashboard.vue', import.meta.url)), 'utf8')
+  assert.match(dashboardSource, /\.metric-grid\s*\{[^}]*repeat\(4/)
+  assert.match(dashboardSource, /@media \(max-width: 1023px\)[\s\S]{0,400}?\.metric-grid\s*\{[^}]*repeat\(2/)
+  assert.match(dashboardSource, /已实现盈亏（毛）/)
+})

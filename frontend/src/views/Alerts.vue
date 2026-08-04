@@ -17,6 +17,7 @@ const request = useRequestState()
 const alertStore = useAlertStore()
 const query = reactive({ search: '', page: 1, unread: '', disposition: '' })
 const hasFilters = computed(() => Boolean(query.search || query.unread || query.disposition))
+const markAllDisabled = computed(() => alertStore.countLoaded && alertStore.unreadCount === 0)
 
 function routeValue(name) {
   const value = route.query[name]
@@ -106,6 +107,7 @@ function dispositionLabel(disposition) {
 onMounted(() => {
   copyRoute()
   void load()
+  void alertStore.fetchUnreadCount()
 })
 watch(() => route.query, () => {
   copyRoute()
@@ -117,7 +119,7 @@ watch(() => route.query, () => {
   <section aria-labelledby="alerts-title">
     <div class="page-heading">
       <div><h1 id="alerts-title" class="page-title">告警与持仓处置</h1><p class="page-subtitle">标记已读只更新阅读状态，不会关闭或修改持仓。</p></div>
-      <el-button :loading="marking" @click="markAll">全部标记已读</el-button>
+      <el-button :loading="marking" :disabled="markAllDisabled" @click="markAll">全部标记已读</el-button>
     </div>
 
     <section class="alert-filters" aria-label="告警筛选">

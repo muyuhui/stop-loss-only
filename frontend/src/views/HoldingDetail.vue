@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api, { refreshErrorMessage, requestHoldingHistory, requestPriceRefresh } from '../api'
 import DataState from '../components/DataState.vue'
 import HoldingPriceChart from '../components/HoldingPriceChart.vue'
-import { formatAssetMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
+import { estimateRealizedProfitLoss, formatAssetMoney, formatMoney, formatSignedPercent, formatTime, stopLossRisk, valueTone } from '../utils/format'
 import { formatQuoteFreshness } from '../utils/market'
 import { priceInputMeta, stopLossInputMeta } from '../utils/holdingForm'
 import { holdingStatusLabel, holdingStatusTag } from '../utils/holdingStatus'
@@ -74,6 +74,13 @@ async function load() {
     editForm.name = res.data.name
     editForm.stop_loss_method = res.data.stop_loss_method
     editForm.stop_loss_value = res.data.stop_loss_value
+    // 可行动行情预填平仓价；用户已输入或修改时不覆盖
+    if (
+      res.data.is_actionable && res.data.current_price != null
+      && (closePrice.value === null || closePrice.value === undefined || closePrice.value === '')
+    ) {
+      closePrice.value = Number(res.data.current_price)
+    }
     request.succeed()
     void loadHistory()
   } catch {
@@ -186,8 +193,10 @@ async function refreshPrice() {
 
 async function closeHolding() {
   if (closing.value || !closePrice.value) return
+  const estimated = estimateRealizedProfitLoss(closePrice.value, holding.value.buy_price, holding.value.quantity)
+  const preview = estimated === null ? '' : `，预计毛已实现盈亏 ${formatMoney(estimated)}（不含费用，仅供参考）`
   try {
-    await ElMessageBox.confirm(`将以 ${formatAssetMoney(closePrice.value, holding.value.type)} 手动平仓，确认继续？`, '确认平仓', {
+    await ElMessageBox.confirm(`将以 ${formatAssetMoney(closePrice.value, holding.value.type)} 手动平仓${preview}，确认继续？`, '确认平仓', {
       confirmButtonText: '确认平仓', cancelButtonText: '取消', type: 'warning',
     })
   } catch { return }

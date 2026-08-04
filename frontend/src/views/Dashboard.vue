@@ -216,6 +216,13 @@ onUnmounted(() => poller.stop())
           <strong class="metric-card__value number">{{ formatMoney(dashboard.active_cost) }}</strong>
           <span class="metric-card__meta">已关闭 {{ dashboard.closed_count }} 个</span>
         </article>
+        <article class="metric-card">
+          <span class="metric-card__label">已实现盈亏（毛）</span>
+          <strong class="metric-card__value number" :class="`tone-${valueTone(dashboard.realized_profit_loss)}`">
+            {{ formatMoney(dashboard.realized_profit_loss) }}
+          </strong>
+          <span class="metric-card__meta">已关闭持仓的毛盈亏，不含费用</span>
+        </article>
       </section>
 
       <section class="panel" aria-labelledby="holdings-overview-title">
@@ -325,7 +332,7 @@ onUnmounted(() => poller.stop())
 .risk-hero__count { min-width: 82px; display: grid; text-align: right; }
 .risk-hero__count strong { font-size: 27px; }
 .risk-hero__count span { color: rgba(255,255,255,.7); font-size: 12px; }
-.metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .metric-card { min-width: 0; padding: 20px; display: grid; gap: 7px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: var(--shadow-panel); }
 .metric-card__label { color: var(--color-text-soft); font-size: 13px; }
 .metric-card__value { font-size: 25px; line-height: 1.15; }

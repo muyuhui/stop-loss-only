@@ -63,7 +63,11 @@ async function mounted({ preview = true, creation = false, path = '/planner' } =
   useRuntimeCapabilitiesStore(pinia).apply({
     authority_stage: creation ? 'new-authoritative' : 'legacy',
     stable_runtime_supported: !creation,
-    capabilities: { risk_plan_previews: preview, risk_covered_position_creation: creation },
+    capabilities: {
+      risk_plan_previews: preview,
+      risk_covered_position_creation: creation,
+      legacy_holding_writes: !creation,
+    },
   })
   const router = createRouter({
     history: createMemoryHistory(),
@@ -134,6 +138,7 @@ describe('risk planner workflow', () => {
     await flushPromises()
     expect(api.post.mock.calls[1][0]).toBe('/positions')
     expect(api.post.mock.calls[1][1].quantity).toBe('400')
+    expect(wrapper.text()).not.toContain('填入新增持仓')
   })
 
   it('shows incomplete coverage without rendering a quantity', async () => {
@@ -203,5 +208,31 @@ describe('risk planner workflow', () => {
     expect(wrapper.vm.addOnForm.planned_entry_price).toBeNull()
     await wrapper.vm.preview()
     expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('稳定运行面新仓结果可填入新增持仓并携带预填参数', async () => {
+    api.post.mockResolvedValue({ data: readyPlan })
+    const { wrapper, router } = await mounted()
+    fillNewPlan(wrapper)
+    await wrapper.vm.preview()
+    await flushPromises()
+    const prefillButton = wrapper.findAll('button').find(item => item.text() === '填入新增持仓')
+    expect(prefillButton).toBeTruthy()
+    await prefillButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/holdings')
+    expect(router.currentRoute.value.query).toMatchObject({
+      create: '1', code: '000001', name: '甲', type: 'stock',
+      buy_price: '20', quantity: '400', stop_method: 'fixed', stop_value: '18',
+    })
+    expect(router.currentRoute.value.query.buy_date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('加仓试算结果保持只读，不提供填入新增持仓入口', async () => {
+    api.post.mockResolvedValue({ data: readyAddOnPlan })
+    const { wrapper } = await mounted({ path: '/planner?mode=add-on&holding_id=12' })
+    await wrapper.vm.preview()
+    await flushPromises()
+    expect(wrapper.findAll('button').some(item => item.text() === '填入新增持仓')).toBe(false)
   })
 })

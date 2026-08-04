@@ -40,6 +40,23 @@ export function valueTone(value) {
   return number > 0 ? 'profit' : 'loss'
 }
 
+/**
+ * 平仓确认前的展示性毛盈亏估算：(平仓价 - 买入价) × 数量。
+ * 仅用于确认参考，权威盈亏以后端记录为准；输入无效返回 null。
+ */
+export function estimateRealizedProfitLoss(closePrice, buyPrice, quantity) {
+  if (
+    closePrice === null || closePrice === undefined || closePrice === ''
+    || buyPrice === null || buyPrice === undefined || buyPrice === ''
+    || quantity === null || quantity === undefined || quantity === ''
+  ) return null
+  const close = Number(closePrice)
+  const cost = Number(buyPrice)
+  const shares = Number(quantity)
+  if (![close, cost, shares].every(Number.isFinite) || close <= 0 || shares <= 0) return null
+  return (close - cost) * shares
+}
+
 export function stopLossRisk(distance, status = 'holding') {
   if (status === 'triggered') return { level: 'danger', label: '已触发止损' }
   if (distance === null || distance === undefined || distance === '') return { level: 'muted', label: '风险未知' }

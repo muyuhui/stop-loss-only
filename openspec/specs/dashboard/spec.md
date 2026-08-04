@@ -15,6 +15,21 @@ Provide a portfolio overview dashboard with summary metrics, holdings status, an
 - **WHEN** 组合为空
 - **THEN** 所有金额和状态数量均为零
 
+### Requirement: 展示已实现盈亏
+仪表盘资产摘要 SHALL 展示后端返回的毛已实现盈亏，并与未实现盈亏明确区分；无已关闭持仓时显示真实零值，未知或不可用数值不得显示为虚假结果。
+
+#### Scenario: 存在已关闭持仓
+- **WHEN** 组合包含 `closed` 持仓且后端返回已实现盈亏
+- **THEN** 资产摘要展示毛已实现盈亏金额（可为正或负），并明确与未实现盈亏区分
+
+#### Scenario: 没有已关闭持仓
+- **WHEN** 组合不存在 `closed` 持仓
+- **THEN** 资产摘要显示已实现盈亏为零，不显示为未知占位
+
+#### Scenario: 移动端布局
+- **WHEN** 用户在 360px 到 767px 宽的视口查看资产摘要
+- **THEN** 已实现盈亏随摘要以不超过两列的网格重排，页面不产生横向滚动
+
 ### Requirement: Holdings overview list
 系统 SHALL 从 legacy `Holding` 权威模型列出 `holding` 和 `triggered` 记录，并返回与稳定持仓 API 一致的标识、价格、行情元数据、止损字段、状态、收益率和止损距离。每个详情入口 MUST 指向已注册的 `/holdings/:id` 页面。
 

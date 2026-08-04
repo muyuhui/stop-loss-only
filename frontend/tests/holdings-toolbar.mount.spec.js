@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import api from '../src/api'
@@ -38,7 +39,7 @@ async function mountHoldings() {
   })
   await router.push('/holdings')
   await router.isReady()
-  const wrapper = mount(Holdings, { global: { plugins: [router], stubs } })
+  const wrapper = mount(Holdings, { global: { plugins: [createPinia(), router], stubs } })
   await flushPromises()
   return wrapper
 }

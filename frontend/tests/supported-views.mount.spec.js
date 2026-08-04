@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElMessageBox } from 'element-plus'
 import api, { requestHoldingHistory, requestPriceRefresh } from '../src/api'
 import Dashboard from '../src/views/Dashboard.vue'
 import HoldingDetail from '../src/views/HoldingDetail.vue'
@@ -251,7 +252,8 @@ describe('受支持视图真实挂载', () => {
     const { wrapper } = await mountAt(Dashboard, '/', [], { risk_budget_reads: true })
     expect(wrapper.text()).toContain('风险预算暂时不可用')
     expect(wrapper.text()).toContain('未知值不会显示为零')
-    expect(wrapper.text()).not.toContain('¥0.00')
+    expect(wrapper.text()).not.toContain('组合风险上限¥0.00')
+    expect(wrapper.text()).not.toContain('剩余风险容量¥0.00')
   })
 
   it('Dashboard 明确区分组合权益未设置与风险覆盖不完整', async () => {
@@ -667,5 +669,78 @@ describe('受支持视图真实挂载', () => {
     expect(wrapper.text()).toContain('可操作行情覆盖：暂无活动持仓')
     expect(wrapper.text()).toContain('估值行情覆盖：暂无活动持仓')
     wrapper.unmount()
+  })
+
+  it('Dashboard 资产摘要展示毛已实现盈亏且零值语义正确', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: {
+        ...dashboardData, realized_profit_loss: 250, closed_count: 2,
+      } })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(Dashboard, '/')
+    expect(wrapper.text()).toContain('已实现盈亏（毛）')
+    expect(wrapper.text()).toContain('¥250.00')
+
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper: zero } = await mountAt(Dashboard, '/')
+    expect(zero.text()).toContain('¥0.00')
+  })
+
+  it('HoldingDetail 用可行动行情预填平仓价并在确认时预览毛盈亏', async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    let closed = false
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/holdings/12') return Promise.resolve({ data: closed
+        ? { ...holdingData, status: 'closed', is_actionable: false }
+        : holdingData })
+      return Promise.resolve({ data: {} })
+    })
+    api.post.mockImplementation(async () => { closed = true; return { data: {} } })
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(wrapper.vm.closePrice).toBe(11)
+    await wrapper.vm.closeHolding()
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining('预计毛已实现盈亏 ¥100.00'),
+      '确认平仓',
+      expect.any(Object),
+    )
+    expect(api.post).toHaveBeenCalledWith('/holdings/12/close', { close_price: 11 })
+    await flushPromises()
+    expect(wrapper.vm.closePrice).toBeNull()
+    confirmSpy.mockRestore()
+  })
+
+  it('HoldingDetail 修改平仓价后按新输入重算预览', async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    wrapper.vm.closePrice = 12
+    await wrapper.vm.closeHolding()
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining('预计毛已实现盈亏 ¥200.00'),
+      '确认平仓',
+      expect.any(Object),
+    )
+    confirmSpy.mockRestore()
+  })
+
+  it('HoldingDetail 行情不可行动时不预填平仓价', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/holdings/12') return Promise.resolve({ data: {
+        ...holdingData, current_price: 11, quote_state: 'delayed', is_actionable: false,
+      } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    expect(wrapper.vm.closePrice).toBeNull()
   })
 })

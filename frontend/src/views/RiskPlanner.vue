@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { formatDecimal, formatMoney } from '../utils/format'
+import { holdingPrefillFromPlan } from '../utils/holdingForm'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +34,7 @@ const addOnForm = reactive({
 const ready = computed(() => result.value?.status === 'ready')
 const planningAvailable = computed(() => runtimeCapabilities.isAvailable('risk_plan_previews'))
 const creationAvailable = computed(() => runtimeCapabilities.isAvailable('risk_covered_position_creation'))
+const holdingCreationAvailable = computed(() => runtimeCapabilities.isAvailable('legacy_holding_writes'))
 const addOnContextReady = computed(() => mode.value === 'add-on' && selectedHolding.value?.status === 'holding')
 const canSubmit = computed(() => {
   if (!planningAvailable.value || submitting.value) return false
@@ -150,6 +152,23 @@ function calculatedTime(value) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
 }
 
+function goCreateHolding() {
+  if (mode.value !== 'new' || !ready.value) return
+  const prefill = holdingPrefillFromPlan(result.value)
+  if (!prefill) return
+  router.push({ path: '/holdings', query: {
+    create: '1',
+    code: prefill.code,
+    name: prefill.name,
+    type: prefill.type,
+    buy_price: prefill.buy_price,
+    quantity: prefill.quantity,
+    buy_date: prefill.buy_date,
+    stop_method: prefill.stop_loss_method,
+    stop_value: prefill.stop_loss_value,
+  } })
+}
+
 watch(() => [route.query.mode, route.query.holding_id], syncRoute)
 onMounted(syncRoute)
 </script>
@@ -259,6 +278,7 @@ onMounted(syncRoute)
 
             <p class="calculated-at">试算时间：{{ calculatedTime(result.calculated_at) }}</p>
             <p class="advisory">这是风险承受能力试算，不判断标的质量或上涨概率，不是收益预测、买入建议或下单指令。系统不知道你的券商可用现金，结果不会预留风险额度，没有提交任何订单，也不会记录实际加仓。</p>
+            <el-button v-if="holdingCreationAvailable && mode === 'new' && ready" type="primary" plain @click="goCreateHolding">填入新增持仓</el-button>
             <el-button v-if="creationAvailable && mode === 'new' && ready" type="primary" plain @click="reviewOpen = true">继续填写建仓确认</el-button>
           </div>
         </section>

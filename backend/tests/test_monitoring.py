@@ -85,6 +85,44 @@ def test_stale_or_failed_quote_cannot_trigger(monkeypatch):
     assert db.query(Alert).count() == 0
 
 
+def test_rearm_enables_new_trigger_lifecycle(monkeypatch):
+    db = session()
+    item = holding()  # 止损 9，fixture 现价 8.8 → 首次触发
+    db.add(item)
+    db.commit()
+    monkeypatch.setattr("services.monitoring.is_market_open", lambda now=None: (True, False))
+
+    run_monitoring_cycle(db, price_loader=lambda holdings, now=None: [quote()])
+    first = db.query(Alert).one()
+    assert first.disposition == "triggered"
+    item = db.get(Holding, item.id)
+    assert item.status == "triggered"
+    assert item.trigger_sequence == 1
+
+    # 重新布防：新止损 8.5（仍低于现价 8.8 → 不立即再触发），序列与版本递增
+    item.status = "holding"
+    item.stop_loss_value = Decimal("8.5")
+    item.stop_loss_price = Decimal("8.5")
+    item.trigger_sequence += 1
+    item.version += 1
+    first.disposition = "rearmed"
+    db.commit()
+
+    # 现价仍高于新止损 → 不触发
+    run_monitoring_cycle(db, price_loader=lambda holdings, now=None: [quote()])
+    assert db.query(Alert).count() == 1
+    assert db.get(Holding, item.id).status == "holding"
+
+    # 现价跌破新止损 → 新生命周期产生新告警（新幂等键）
+    run_monitoring_cycle(db, price_loader=lambda holdings, now=None: [quote(price="8.4")])
+    assert db.query(Alert).count() == 2
+    second = db.query(Alert).order_by(Alert.id.desc()).first()
+    assert second.disposition == "triggered"
+    assert second.lifecycle_key != first.lifecycle_key
+    assert db.get(Holding, item.id).status == "triggered"
+    assert db.get(Holding, item.id).trigger_sequence == 3
+
+
 def test_alert_snapshot_survives_holding_delete(monkeypatch):
     db = session()
     item = holding()

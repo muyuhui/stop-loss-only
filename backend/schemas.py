@@ -91,7 +91,7 @@ class StopHistoryItem(BaseModel):
     stop_loss_method: str
     stop_loss_value: float
     stop_loss_price: float
-    source: Literal["create", "update"]
+    source: Literal["create", "update", "rearm"]
     changed_at: datetime
 
 

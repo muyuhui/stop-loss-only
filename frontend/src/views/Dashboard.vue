@@ -32,6 +32,7 @@ const poller = createPoller(load)
 
 const risk = computed(() => dashboardRiskSummary(dashboard.value))
 const sortedHoldings = computed(() => sortHoldingsByRisk(dashboard.value.holdings))
+const triggeredHoldings = computed(() => sortedHoldings.value.filter((row) => row.status === 'triggered'))
 const isStale = computed(() => request.isStale(settingsStore.pollInterval))
 const monitoringSummary = computed(() => monitoringTrust(monitoring.value || {}))
 const budget = computed(() => riskBudgetStore.data)
@@ -180,6 +181,21 @@ onUnmounted(() => poller.stop())
         </div>
       </section>
 
+      <section v-if="triggeredHoldings.length" class="panel disposition-queue" aria-labelledby="disposition-title">
+        <header class="panel__header">
+          <div><h2 id="disposition-title" class="panel__title">待处置持仓</h2><span class="section-hint">{{ triggeredHoldings.length }} 笔已触发止损，请确认处置（重新布防或平仓）</span></div>
+          <el-button type="warning" plain link @click="router.push('/alerts')">查看告警</el-button>
+        </header>
+        <div class="disposition-grid">
+          <article v-for="row in triggeredHoldings" :key="row.id" class="disposition-card">
+            <div class="disposition-card__identity"><strong>{{ row.name }}</strong><small>{{ row.code }}</small></div>
+            <span>当前价 <strong class="number">{{ formatAssetMoney(row.current_price, row.type) }}</strong></span>
+            <span>止损价 <strong class="number">{{ formatAssetMoney(row.stop_loss_price, row.type) }}</strong></span>
+            <el-button type="warning" plain @click="router.push(`/holdings/${row.id}`)">去处置</el-button>
+          </article>
+        </div>
+      </section>
+
       <section class="metric-grid" aria-label="资产摘要">
         <article class="metric-card metric-card--primary">
           <span class="metric-card__label">未实现盈亏</span>
@@ -281,6 +297,13 @@ onUnmounted(() => poller.stop())
 .monitoring-trust span { color: var(--color-text-soft); }
 .session-badge { padding: 2px 9px; color: var(--color-brand); background: var(--color-brand-soft); border: 1px solid var(--color-brand); border-radius: 999px; font-size: 11px; font-weight: 650; }
 .quote-freshness { color: var(--color-text-muted); font-size: 11px; }
+.disposition-queue { border-color: #ecd7b5; }
+.disposition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 0 20px 20px; }
+.disposition-card { padding: 14px; display: grid; gap: 8px; background: var(--color-warning-soft); border: 1px solid #ecd7b5; border-radius: 10px; }
+.disposition-card__identity { display: grid; gap: 2px; }
+.disposition-card__identity small { color: var(--color-text-muted); font-size: 11px; }
+.disposition-card span:not(.disposition-card__identity) { display: flex; justify-content: space-between; gap: 8px; color: var(--color-text-soft); font-size: 12px; }
+.disposition-card .el-button { justify-self: end; }
 .monitoring-trust--success { border-left: 4px solid var(--color-success); }
 .monitoring-trust--warning { border-left: 4px solid var(--color-warning); }
 .monitoring-trust--danger { border-left: 4px solid var(--color-danger); }

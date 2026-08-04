@@ -171,6 +171,35 @@ def delete_holding(holding_id: int, db: Session = Depends(get_db)):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/{holding_id}/rearm", response_model=HoldingResponse)
+def rearm_holding(holding_id: int, data: HoldingUpdate, db: Session = Depends(get_db)):
+    _legacy_writable(db)
+    holding = _get_holding(db, holding_id)
+    if holding.status != "triggered":
+        raise HTTPException(status_code=400, detail="只有已触发的持仓可以重新布防")
+    prospective_method = data.stop_loss_method or holding.stop_loss_method
+    prospective_value = data.stop_loss_value if data.stop_loss_value is not None else holding.stop_loss_value
+    ok, error = StopLossEngine.validate(holding.buy_price, prospective_method, prospective_value)
+    if not ok:
+        raise HTTPException(status_code=422, detail=error)
+    holding.stop_loss_method = prospective_method
+    holding.stop_loss_value = to_decimal(prospective_value)
+    holding.stop_loss_price = StopLossEngine.calculate(holding.buy_price, holding.highest_price, prospective_method, prospective_value)
+    # 重新布防开启新的监控生命周期：序列递增保证下次触发产生新幂等键，
+    # 版本递增使并发的进行中触发（status + version CAS）失败。
+    holding.status = "holding"
+    holding.trigger_sequence += 1
+    holding.version += 1
+    db.add(_stop_history_row(holding, source="rearm"))
+    db.query(Alert).filter(
+        Alert.holding_id == holding.id,
+        or_(Alert.disposition == "triggered", Alert.disposition.is_(None)),
+    ).update({Alert.disposition: "rearmed"}, synchronize_session=False)
+    _commit_legacy(db)
+    db.refresh(holding)
+    return holding_payload(holding)
+
+
 @router.post("/{holding_id}/close", response_model=HoldingResponse)
 def close_holding(holding_id: int, data: HoldingClose, db: Session = Depends(get_db)):
     _legacy_writable(db)

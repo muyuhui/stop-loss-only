@@ -33,3 +33,6 @@ backend/backups/
 # OS
 .DS_Store
 Thumbs.db
+
+# Playwright artifacts
+test-results/

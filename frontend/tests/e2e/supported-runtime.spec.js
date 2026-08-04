@@ -196,7 +196,7 @@ test('legacy 风险试算、刷新触发、告警查看与手动平仓', async (
   await expect(page.getByLabel('搜索告警')).toHaveValue(holdingName)
   await expect(alert).toBeVisible()
   await assertPageIntegrity(page, browserErrors)
-  await alert.getByRole('button', { name: '查看持仓' }).click()
+  await alert.getByRole('button', { name: '去处置' }).click()
   await expect(page).toHaveURL(/\/holdings\/\d+$/)
   await expect(page.getByRole('heading', { name: holdingName })).toBeVisible()
 
@@ -394,6 +394,59 @@ test('测试通知在权限已授予时创建样本通知且不产生业务写�
   expect(record.title).toContain('测试')
   expect(record.options.tag).toBe('test')
   expect(businessWrites).toEqual([])
+  await assertPageIntegrity(page, browserErrors)
+})
+
+test('触发处置闭环：重新布防恢复监控且告警标记已重新布防', async ({ page }, testInfo) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+
+  const name = `布防闭环-${testInfo.project.name}`
+  const created = await page.request.post('/api/holdings', { data: {
+    code: '000010', name, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 9,
+  } })
+  expect(created.ok()).toBe(true)
+  const holdingId = (await created.json()).id
+
+  // 刷新触发（fixture 价 8.8 < 止损 9）
+  const refresh = await page.request.post('/api/prices/refresh')
+  expect(refresh.ok()).toBe(true)
+  await expect.poll(async () => {
+    const detail = await page.request.get(`/api/holdings/${holdingId}`)
+    return (await detail.json()).status
+  }, { timeout: 15_000 }).toBe('triggered')
+
+  // 仪表盘待处置队列直达详情（按名称定位，其他测试可能残留已触发持仓）
+  await page.goto('/')
+  await expect(page.getByText('待处置持仓', { exact: true })).toBeVisible()
+  await page.locator('.disposition-card').filter({ hasText: name }).getByRole('button', { name: '去处置' }).click()
+  await expect(page).toHaveURL(new RegExp(`/holdings/${holdingId}$`))
+  await expect(page.getByRole('heading', { name })).toBeVisible()
+
+  // 详情页重新布防：新止损 8.5（高于现价 8.8 → 不再触发）
+  await page.getByRole('button', { name: '重新布防', exact: true }).click()
+  await page.locator('.el-input-number input').first().fill('8.5')
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.getByText('已重新布防，恢复监控')).toBeVisible()
+  await expect(page.getByText('持有中', { exact: true })).toBeVisible()
+
+  // 告警标记为已重新布防，阅读状态不变
+  const alerts = await (await page.request.get(`/api/alerts?search=${encodeURIComponent(name)}`)).json()
+  const alert = alerts.items.find((item) => item.holding_name === name)
+  expect(alert.disposition).toBe('rearmed')
+  expect(alert.read).toBe(false)
+
+  // 再次刷新不重复触发（现价 8.8 > 新止损 8.5）
+  await page.request.post('/api/prices/refresh')
+  await expect.poll(async () => {
+    const detail = await page.request.get(`/api/holdings/${holdingId}`)
+    return (await detail.json()).status
+  }, { timeout: 15_000 }).toBe('holding')
+
+  // 止损历史记录 rearm 来源
+  const history = await (await page.request.get(`/api/holdings/${holdingId}/stop-history`)).json()
+  expect(history.items[0].source).toBe('rearm')
   await assertPageIntegrity(page, browserErrors)
 })
 

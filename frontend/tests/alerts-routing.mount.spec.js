@@ -90,7 +90,7 @@ describe('告警稳定路由', () => {
 
   it('同时存在 holding_id 和 position_id 时只进入已注册的持仓详情', async () => {
     const { wrapper, router } = await mountAlerts()
-    const action = wrapper.findAll('button').find((button) => button.text().includes('查看持仓'))
+    const action = wrapper.findAll('button').find((button) => button.text().includes('去处置'))
     expect(action).toBeTruthy()
     await action.trigger('click')
     await flushPromises()

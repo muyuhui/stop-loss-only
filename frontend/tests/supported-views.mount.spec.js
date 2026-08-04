@@ -53,7 +53,11 @@ function deferred() {
 const stubs = {
   DataState: { props: ['title'], template: '<div>{{ title }}</div>' },
   HoldingPriceChart: true,
-  ElButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  ElButton: {
+    props: ['nativeType'], emits: ['click'],
+    template: '<button :type="nativeType === \'submit\' ? \'submit\' : \'button\'" @click="$emit(\'click\')"><slot /></button>',
+  },
+  ElForm: { emits: ['submit'], template: '<form @submit.prevent="$emit(\'submit\', { preventDefault() {} })"><slot /></form>' },
   ElTag: { template: '<span><slot /></span>' },
   ElTable: { template: '<div><slot /></div>' },
   ElTableColumn: { data: () => ({ row: dashboardData.holdings[0] }), template: '<div><slot :row="row" /></div>' },
@@ -64,7 +68,6 @@ const stubs = {
   },
   ElSelect: { template: '<select><slot /></select>' },
   ElOption: true,
-  ElForm: { template: '<form><slot /></form>' },
   ElFormItem: { template: '<label><slot /></label>' },
 }
 
@@ -314,6 +317,33 @@ describe('受支持视图真实挂载', () => {
     await wrapper.findAll('button').find(button => button.text() === '检测连接').trigger('click')
     await flushPromises()
     expect(api.post).toHaveBeenCalledWith('/ai/deepseek/test', undefined, expect.any(Object))
+  })
+
+  it('HoldingDetail 触发状态提供重新布防并走 rearm 端点', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/holdings/12') return Promise.resolve({ data: { ...holdingData, status: 'triggered' } })
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      return Promise.resolve({ data: {} })
+    })
+    api.post.mockResolvedValue({ data: {} })
+    const { wrapper } = await mountAt(HoldingDetail, '/holdings/:id')
+    const rearmButton = wrapper.findAll('button').find((button) => button.text() === '重新布防')
+    expect(rearmButton).toBeTruthy()
+    expect(wrapper.text()).toContain('该持仓已触发止损')
+
+    await rearmButton.trigger('click')
+    await flushPromises()
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存修改')
+    expect(saveButton).toBeTruthy()
+    await saveButton.trigger('click')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(api.post).toHaveBeenCalledWith('/holdings/12/rearm', expect.objectContaining({
+      stop_loss_method: 'fixed',
+      stop_loss_value: 9,
+    }))
+    expect(api.put.mock.calls.some(([path]) => path === '/holdings/12')).toBe(false)
   })
 
   it('HoldingDetail 展示止损调整记录时间线', async () => {
@@ -567,6 +597,36 @@ describe('受支持视图真实挂载', () => {
     expect(card.text()).toContain('风险未知')
     expect(card.text()).not.toContain('0.00%')
     wrapper.unmount()
+  })
+
+  it('Dashboard 展示待处置持仓队列且无触发时不渲染', async () => {
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: {
+        ...dashboardData, triggered_count: 1,
+        holdings: [{ ...dashboardData.holdings[0], status: 'triggered' }],
+      } })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper, router } = await mountAt(Dashboard, '/', [
+      { path: '/holdings/:id', component: { template: '<p>持仓详情</p>' } },
+    ])
+    expect(wrapper.text()).toContain('待处置持仓')
+    const goButton = wrapper.findAll('button').find((button) => button.text() === '去处置')
+    expect(goButton).toBeTruthy()
+    await goButton.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/holdings/12')
+
+    api.get.mockImplementation((path) => {
+      if (path === '/settings') return Promise.resolve({ data: { poll_interval: 30, monitor_interval: 5 } })
+      if (path === '/dashboard') return Promise.resolve({ data: dashboardData })
+      if (path === '/monitoring/status') return Promise.resolve({ data: { scheduler_running: true, overdue: false, quote_coverage_pct: 100 } })
+      return Promise.resolve({ data: {} })
+    })
+    const { wrapper: clean } = await mountAt(Dashboard, '/')
+    expect(clean.text()).not.toContain('待处置持仓')
   })
 
   it('Dashboard 展示交易时段徽标且状态缺失时降级', async () => {

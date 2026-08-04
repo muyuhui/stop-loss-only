@@ -125,6 +125,66 @@ def test_stop_rule_history_skips_noop_updates_and_survives_delete(api):
     assert history["items"][0]["stop_loss_price"] == 9
 
 
+def test_rearm_triggered_holding_restores_monitoring(api):
+    client, factory, _ = api
+    item = client.post("/api/holdings", json=holding_body()).json()
+    db = factory()
+    row = db.get(Holding, item["id"])
+    row.status = "triggered"
+    alert = Alert(
+        holding_id=row.id, holding_name=row.name, holding_code=row.code, lifecycle_key="trigger-1",
+        trigger_price=9, current_price=8.8, disposition="triggered",
+    )
+    db.add(alert)
+    db.commit()
+    db.close()
+
+    rearmed = client.post(
+        f"/api/holdings/{item['id']}/rearm",
+        json={"stop_loss_method": "percentage", "stop_loss_value": 10},
+    )
+    assert rearmed.status_code == 200
+    payload = rearmed.json()
+    assert payload["status"] == "holding"
+    assert payload["stop_loss_method"] == "percentage"
+    assert payload["stop_loss_value"] == 10
+    assert payload["stop_loss_price"] == 9
+
+    db = factory()
+    row = db.get(Holding, item["id"])
+    assert row.status == "holding"
+    assert row.trigger_sequence == 1
+    assert row.version == 2
+    assert [a.disposition for a in db.query(Alert).filter(Alert.holding_id == row.id).all()] == ["rearmed"]
+    assert [a.read for a in db.query(Alert).filter(Alert.holding_id == row.id).all()] == [False]
+    db.close()
+
+    history = client.get(f"/api/holdings/{item['id']}/stop-history").json()
+    assert history["items"][0]["source"] == "rearm"
+    assert len(history["items"]) == 2
+
+
+def test_rearm_validation_and_status_guards(api):
+    client, factory, _ = api
+    item = client.post("/api/holdings", json=holding_body()).json()
+    # holding 状态拒绝
+    assert client.post(f"/api/holdings/{item['id']}/rearm", json={"stop_loss_value": 8}).status_code == 400
+
+    db = factory()
+    db.get(Holding, item["id"]).status = "triggered"
+    db.commit()
+    db.close()
+    # 校验失败 422 且无副作用
+    bad = client.post(f"/api/holdings/{item['id']}/rearm", json={"stop_loss_value": 11})
+    assert bad.status_code == 422
+    detail = client.get(f"/api/holdings/{item['id']}").json()
+    assert detail["status"] == "triggered"
+    assert detail["stop_loss_value"] == 9
+    # 平仓后拒绝
+    assert client.post(f"/api/holdings/{item['id']}/close", json={"close_price": 8}).status_code == 200
+    assert client.post(f"/api/holdings/{item['id']}/rearm", json={"stop_loss_value": 8}).status_code == 400
+
+
 def test_lifecycle_close_and_alert_snapshot(api):
     client, factory, _ = api
     item = client.post("/api/holdings", json=holding_body()).json()

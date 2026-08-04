@@ -112,3 +112,18 @@ The system SHALL update highest_price whenever current_price exceeds the existin
 - **WHEN** 用户确认已知悉触发风险
 - **THEN** 风险状态变为 `acknowledged`，告警阅读状态保持原值
 
+### Requirement: 重新布防后重新触发
+系统 SHALL 允许已触发持仓通过重新布防（rearm）进入新的监控生命周期：rearm SHALL 递增触发序列与版本，使重新布防后的再次跌破止损产生一条新的告警生命周期（新幂等键），MUST NOT 因幂等约束静默跳过；触发判定本身 SHALL 保持"仅可行动新鲜行情、仅 `holding` 状态"不变。
+
+#### Scenario: 重新布防后再次跌破止损
+- **WHEN** 已触发持仓重新布防（状态回到 `holding`、触发序列递增）后，收到仍低于新止损价的可行动新鲜行情
+- **THEN** 系统在该新生命周期内提交一条新的触发告警，旧告警的处置状态保持 `rearmed`
+
+#### Scenario: 重新布防后价格未跌破
+- **WHEN** 重新布防后的可行动现价高于新止损价
+- **THEN** 持仓保持 `holding`，不产生新告警
+
+#### Scenario: 重新布防并发触发
+- **WHEN** 监控周期与重新布防并发发生
+- **THEN** 版本条件使基于布防前状态的触发提交失败，不产生基于旧规则的告警
+

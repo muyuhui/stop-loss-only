@@ -160,7 +160,7 @@ watch(() => route.query, () => {
         <article v-for="alert in alerts" :key="alert.id" class="alert-card" :class="{ unread: !alert.read }">
           <header><div><strong>{{ alert.holding_name }}</strong><small>{{ alert.holding_code }} · {{ dispositionLabel(alert.disposition) }}</small></div><el-tag :type="alert.read ? 'info' : 'warning'">{{ alert.read ? '已读' : '未读' }}</el-tag></header>
           <div class="snapshot"><span>当前价 <strong class="number">{{ formatMoney(alert.current_price) }}</strong></span><span>止损价 <strong class="number">{{ formatMoney(alert.trigger_price) }}</strong></span></div>
-          <footer><time>{{ formatTime(alert.created_at) }}</time><span><el-button v-if="alert.holding_id" link @click="openHolding(alert)">查看持仓</el-button><el-button v-if="!alert.read" link type="primary" :loading="marking" @click="markRead(alert.id)">标记已读</el-button></span></footer>
+          <footer><time>{{ formatTime(alert.created_at) }}</time><span><el-button v-if="alert.holding_id" link :type="alert.disposition === 'triggered' ? 'primary' : ''" @click="openHolding(alert)">{{ alert.disposition === 'triggered' ? '去处置' : '查看持仓' }}</el-button><el-button v-if="!alert.read" link type="primary" :loading="marking" @click="markRead(alert.id)">标记已读</el-button></span></footer>
         </article>
       </div>
       <el-pagination v-if="total > 20" :current-page="query.page" :page-size="20" :total="total" layout="prev, pager, next" @current-change="page => sync({ page })" />

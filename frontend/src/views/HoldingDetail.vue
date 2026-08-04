@@ -150,12 +150,20 @@ async function saveEdit() {
   if (saving.value) return
   saving.value = true
   try {
-    await api.put(`/holdings/${route.params.id}`, {
-      name: editForm.name.trim(),
-      stop_loss_method: editForm.stop_loss_method,
-      stop_loss_value: Number(editForm.stop_loss_value),
-    })
-    ElMessage.success('持仓与止损参数已更新')
+    if (holding.value.status === 'triggered') {
+      await api.post(`/holdings/${route.params.id}/rearm`, {
+        stop_loss_method: editForm.stop_loss_method,
+        stop_loss_value: Number(editForm.stop_loss_value),
+      })
+      ElMessage.success('已重新布防，恢复监控')
+    } else {
+      await api.put(`/holdings/${route.params.id}`, {
+        name: editForm.name.trim(),
+        stop_loss_method: editForm.stop_loss_method,
+        stop_loss_value: Number(editForm.stop_loss_value),
+      })
+      ElMessage.success('持仓与止损参数已更新')
+    }
     editMode.value = false
     await load()
   } finally {
@@ -291,9 +299,11 @@ onMounted(async () => {
           <div class="panel-actions">
             <el-button :loading="refreshing" @click="refreshPrice">刷新价格</el-button>
             <el-button v-if="addOnPlanningAvailable" @click="openAddOnPlan">加仓风险试算</el-button>
-            <el-button v-if="holding.status === 'holding' && !editMode" type="primary" @click="editMode = true">修改止损</el-button>
+            <el-button v-if="(holding.status === 'holding' || holding.status === 'triggered') && !editMode" :type="holding.status === 'triggered' ? 'warning' : 'primary'" @click="editMode = true">{{ holding.status === 'triggered' ? '重新布防' : '修改止损' }}</el-button>
           </div>
         </header>
+
+        <p v-if="holding.status === 'triggered'" class="rearm-hint">该持仓已触发止损。重新布防将按新规则恢复监控：若现价仍低于新止损价，将在下一监控周期再次触发；也可选择手动平仓。</p>
 
         <div v-if="!editMode" class="stop-settings-view">
           <div><span>止损方式</span><strong>{{ methodLabel(holding.stop_loss_method) }}</strong></div>
@@ -404,6 +414,7 @@ onMounted(async () => {
 .stop-history__tag.is-create { color: var(--color-success); background: var(--color-success-soft); }
 .stop-history__tag.is-update { color: var(--color-brand); background: var(--color-brand-soft); }
 .history-muted { margin: 0; color: var(--color-text-soft); font-size: 12px; }
+.rearm-hint { margin: 0 20px 0; padding: 11px 14px; color: var(--color-warning); background: var(--color-warning-soft); border: 1px solid #ecd7b5; border-radius: 9px; font-size: 12px; line-height: 1.7; }
 @media (max-width: 1023px) { .detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stop-settings-view { grid-template-columns: repeat(2, minmax(0, 1fr)); } .edit-form { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 767px) {
   .detail-heading { align-items: start; }

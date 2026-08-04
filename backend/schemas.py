@@ -420,6 +420,7 @@ class RuntimeCapabilityMap(BaseModel):
     position_lifecycle_writes: bool
     csv_portability: bool
     webhook_delivery: bool
+    browser_notifications: bool
     ai_holding_reviews: bool
 
 

@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(openspec list *)",
-      "Bash(python -m pytest -p no:cacheprovider -q)"
+      "Bash(python -m pytest -p no:cacheprovider -q)",
+      "Bash(xargs wc -l)",
+      "Bash(python -m pytest -p no:cacheprovider -q --timeout=300)",
+      "Bash(npm test *)",
+      "Bash(python -c ' *)",
+      "Bash(openspec new *)",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)",
+      "Bash(openspec validate *)"
     ]
   }
 }

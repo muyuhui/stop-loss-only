@@ -8,15 +8,20 @@ import { useAlertStore } from './stores/alert'
 import { useSettingsStore } from './stores/settings'
 import { useRuntimeCapabilitiesStore } from './stores/runtimeCapabilities'
 import { createPoller } from './utils/poller'
+import {
+  createTriggerNotifier,
+  getNotificationPreferences,
+  playTriggerChime,
+  sendTriggerNotification,
+} from './utils/notifications'
 
 const router = useRouter()
 const route = useRoute()
 const alertStore = useAlertStore()
 const settingsStore = useSettingsStore()
 const runtimeCapabilities = useRuntimeCapabilitiesStore()
-const lastAlertId = ref(0)
-const initialized = ref(false)
 const alertPoller = createPoller(checkAlerts)
+const defaultTitle = document.title || '止损不止盈'
 const navigationItems = [
   { path: '/', label: '仪表盘', icon: HomeFilled },
   { path: '/holdings', label: '持仓', desktopLabel: '持仓管理', icon: List },
@@ -32,23 +37,25 @@ function isActive(path) {
   return path === '/' ? route.path === '/' : route.path.startsWith(path)
 }
 
+function presentTrigger(alert) {
+  ElNotification({
+    title: '止损触发',
+    message: `${alert.holding_name}(${alert.holding_code}) 当前价 ${alert.current_price} 触及止损价 ${alert.trigger_price}`,
+    type: 'warning',
+    duration: 0,
+  })
+  const preferences = getNotificationPreferences()
+  if (preferences.notificationsEnabled) sendTriggerNotification(alert)
+  if (preferences.soundEnabled) playTriggerChime()
+}
+
+// 基线 = 首次成功轮询响应中的最新未读 id；同一条告警只通知一次（见 utils/notifications.js）
+const onAlertSnapshot = createTriggerNotifier(presentTrigger)
+
 async function checkAlerts() {
   try {
     const res = await api.get('/alerts?unread=true&size=1')
-    const alerts = res.data.items || []
-    if (!initialized.value) {
-      lastAlertId.value = alerts[0]?.id || 0
-      initialized.value = true
-    } else if (alerts.length > 0 && alerts[0].id !== lastAlertId.value) {
-      lastAlertId.value = alerts[0].id
-      const a = alerts[0]
-      ElNotification({
-        title: '止损触发',
-        message: `${a.holding_name}(${a.holding_code}) 当前价 ${a.current_price} 触及止损价 ${a.trigger_price}`,
-        type: 'warning',
-        duration: 0,
-      })
-    }
+    onAlertSnapshot(res.data.items || [])
   } catch {
     // ignore
   }
@@ -59,18 +66,32 @@ function startAlertPolling() {
   alertPoller.start(settingsStore.pollInterval)
 }
 
+// 未读徽标：与铃铛角标共享同一未读事实来源；未读为零时恢复原标题
+watch(() => alertStore.unreadCount, (count) => {
+  document.title = count > 0 ? `(${count}) ${defaultTitle}` : defaultTitle
+}, { immediate: true })
+
+// 从隐藏恢复可见：立即刷新告警（轮询器在可见瞬间已立即回调，这里兜底页面数据依赖的计数）
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    checkAlerts()
+  }
+}
+
 onMounted(async () => {
   await runtimeCapabilities.fetchCapabilities()
   await settingsStore.fetchSettings()
   alertStore.fetchUnreadCount()
   await checkAlerts()
   startAlertPolling()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 watch(() => settingsStore.pollInterval, startAlertPolling)
 
 onUnmounted(() => {
   alertPoller.stop()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 

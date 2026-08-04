@@ -14,6 +14,51 @@ async function clickVisibleNav(page, label) {
   await page.locator('a:visible').filter({ hasText: label }).first().click()
 }
 
+async function installNotificationStub(page, granted) {
+  await page.addInitScript((permission) => {
+    window.__notifications = { created: [] }
+    class FakeNotification {
+      constructor(title, options) {
+        this.title = title
+        this.options = options
+        window.__notifications.created.push({ title, options })
+      }
+    }
+    FakeNotification.permission = permission
+    window.Notification = FakeNotification
+  }, granted ? 'granted' : 'denied')
+}
+
+async function forceVisibility(page, visible) {
+  await page.evaluate((isVisible) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (isVisible ? 'visible' : 'hidden') })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }, visible)
+}
+
+async function createTriggeredAlert(page, testInfo) {
+  const name = `通知验证-${testInfo.project.name}`
+  const created = await page.request.post('/api/holdings', { data: {
+    code: '000009', name, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 9,
+  } })
+  expect(created.ok()).toBe(true)
+  const refresh = await page.request.post('/api/prices/refresh')
+  expect(refresh.ok()).toBe(true)
+  await expect.poll(async () => {
+    const alerts = await page.request.get('/api/alerts?unread=true&size=1')
+    return (await alerts.json()).items?.length ?? 0
+  }, { timeout: 15_000 }).toBeGreaterThan(0)
+  return { name }
+}
+
+function trackBrowserErrors(page, browserErrors) {
+  page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`))
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`)
+  })
+}
+
 test('legacy 风险试算、刷新触发、告警查看与手动平仓', async ({ page }, testInfo) => {
   const browserErrors = []
   const previewRequests = []
@@ -265,5 +310,64 @@ test('DeepSeek 设置、成功复盘、受限加仓入口与失败重试', async
     page.getByRole('button', { name: '重新复盘' }).click(),
   ])
   await expect(page.getByText('近期行情与止损风险已完成复盘。')).toBeVisible()
+  await assertPageIntegrity(page, browserErrors)
+})
+
+test('通知权限已授予时，新触发止损创建浏览器通知', async ({ page }, testInfo) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  await installNotificationStub(page, true)
+
+  // 用户显式开启系统通知（页面加载绝不主动请求）；
+  // el-switch 的可访问名位于隐藏 input 上，点击可见的 .el-switch 根节点
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: '设置' })).toBeVisible()
+  const notificationSwitch = page.locator('.el-switch').first()
+  await notificationSwitch.click()
+  await expect(notificationSwitch).toHaveClass(/is-checked/)
+  await expect(page.getByText('已授予', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.Notification.permission)).toBe('granted')
+
+  const baseline = page.waitForResponse((response) => (
+    response.url().includes('/api/alerts?') && response.url().includes('unread=')
+  ))
+  await page.goto('/')
+  await baseline
+  await createTriggeredAlert(page, testInfo)
+
+  // 隐藏 → 恢复可见：立即刷新告警，不等下一个轮询周期
+  await forceVisibility(page, false)
+  await forceVisibility(page, true)
+
+  await expect.poll(async () => (
+    page.evaluate(() => window.__notifications.created.length)
+  ), { timeout: 10_000 }).toBe(1)
+  const record = await page.evaluate(() => window.__notifications.created[0])
+  expect(record.title).toBe('止损触发')
+  expect(record.options.body).toContain(testInfo.project.name)
+  expect(record.options.body).toContain('000009')
+  expect(record.options.body).toContain('8.8')
+  expect(record.options.body).toContain('止损价 9')
+  await assertPageIntegrity(page, browserErrors)
+})
+
+test('通知权限被拒绝时不创建浏览器通知且未读徽标仍在', async ({ page }, testInfo) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  await installNotificationStub(page, false)
+
+  const baseline = page.waitForResponse((response) => (
+    response.url().includes('/api/alerts?') && response.url().includes('unread=')
+  ))
+  await page.goto('/')
+  await baseline
+  await createTriggeredAlert(page, testInfo)
+
+  await forceVisibility(page, false)
+  await forceVisibility(page, true)
+
+  await expect.poll(async () => Number(await page.locator('.el-badge__content').textContent())).toBeGreaterThan(0)
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => window.__notifications.created.length)).toBe(0)
   await assertPageIntegrity(page, browserErrors)
 })

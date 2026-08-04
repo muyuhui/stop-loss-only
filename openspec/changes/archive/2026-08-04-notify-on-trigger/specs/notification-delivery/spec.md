@@ -1,8 +1,5 @@
-# notification-delivery Specification
+## MODIFIED Requirements
 
-## Purpose
-定义稳定通知事实与外部投递隔离边界；当前站内告警可用，缺少完整运行时 owner 的 Webhook 与浏览器系统通知默认拒绝。
-## Requirements
 ### Requirement: 只暴露具有有效 owner 的投递路径
 本稳定版本 SHALL 以站内告警作为唯一通知事实。浏览器系统通知 SHALL 作为受支持的前端投递路径存在,其 owner 是运行中的前端浏览器上下文;浏览器通知 MUST 只呈现站内告警快照(持仓名称/代码、当前价、止损价与处置入口),MUST NOT 创建新的业务事实,且站内告警的提交与消费 MUST NOT 依赖通知发送成功。Webhook 通道 MUST NOT 显示、接受或持久化启用状态,因为稳定运行时没有负责重试投递的完整 owner。创建止损告警 MUST NOT 创建无法被稳定消费的外部投递工作。
 
@@ -18,6 +15,8 @@
 - **WHEN** 客户端直接尝试启用 Webhook 能力
 - **THEN** 系统返回稳定的 `feature_not_supported` 且不保存启用状态或密钥
 
+## ADDED Requirements
+
 ### Requirement: 浏览器通知只呈现站内告警事实
 前端 SHALL 仅在检测到新增的未读告警时发送浏览器通知,每一条告警只通知一次;通知内容 SHALL 使用告警的快照字段,并 SHALL 提供进入对应 legacy 持仓详情处置的入口。通知发送失败或环境不支持时 MUST NOT 影响轮询、站内告警列表或未读状态。
 
@@ -32,4 +31,3 @@
 #### Scenario: 通知发送失败
 - **WHEN** 浏览器通知发送抛出异常或环境不支持
 - **THEN** 前端静默降级,未读徽标与站内列表保持可用,轮询不被中断
-

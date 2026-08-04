@@ -14,6 +14,7 @@ CapabilityName = Literal[
     "position_lifecycle_writes",
     "csv_portability",
     "webhook_delivery",
+    "browser_notifications",
     "ai_holding_reviews",
 ]
 
@@ -28,6 +29,7 @@ class RuntimeCapabilities:
     position_lifecycle_writes: bool = False
     csv_portability: bool = False
     webhook_delivery: bool = False
+    browser_notifications: bool = False
     ai_holding_reviews: bool = False
 
 
@@ -43,6 +45,7 @@ _POLICIES = {
         legacy_holding_writes=True,
         risk_budget_reads=True,
         risk_plan_previews=True,
+        browser_notifications=True,
         ai_holding_reviews=True,
     ),
     "shadow-read": RuntimeCapabilities(
@@ -50,6 +53,7 @@ _POLICIES = {
         shadow_diagnostics=True,
         risk_budget_reads=True,
         risk_plan_previews=True,
+        browser_notifications=True,
         ai_holding_reviews=True,
     ),
     # The stable application still rejects this stage at readiness. These flags

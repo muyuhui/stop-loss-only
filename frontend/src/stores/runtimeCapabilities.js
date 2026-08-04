@@ -11,6 +11,7 @@ export const CLOSED_CAPABILITIES = Object.freeze({
   position_lifecycle_writes: false,
   csv_portability: false,
   webhook_delivery: false,
+  browser_notifications: false,
   ai_holding_reviews: false,
 })
 

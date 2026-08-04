@@ -9,6 +9,12 @@ import { useRuntimeCapabilitiesStore } from '../stores/runtimeCapabilities'
 import { summarizeRefresh } from '../utils/refreshResult'
 import { detectSettingsPreset, SETTINGS_PRESETS, settingsForPreset } from '../utils/settingsPresets'
 import { useRequestState } from '../utils/requestState'
+import {
+  ensurePermission,
+  getNotificationPreferences,
+  permissionState,
+  saveNotificationPreferences,
+} from '../utils/notifications'
 
 const settingsStore = useSettingsStore()
 const monitoringStore = useMonitoringStore()
@@ -31,6 +37,38 @@ const riskSettingsAvailable = computed(() => (
   || runtimeCapabilities.isAvailable('risk_plan_previews')
 ))
 const aiReviewAvailable = computed(() => runtimeCapabilities.isAvailable('ai_holding_reviews'))
+const notificationsAvailable = computed(() => runtimeCapabilities.isAvailable('browser_notifications'))
+const notificationPrefs = ref(getNotificationPreferences())
+const permission = ref(permissionState())
+const permissionRequesting = ref(false)
+const permissionLabels = { granted: '已授予', denied: '被拒绝', default: '未授权', unsupported: '不支持' }
+const permissionLabel = computed(() => permissionLabels[permission.value] || permission.value)
+const permissionTagType = computed(() => ({
+  granted: 'success', denied: 'danger', default: 'info', unsupported: 'info',
+}[permission.value] || 'info'))
+
+// 通知开关：只在用户手势中请求权限（页面加载绝不主动请求）；被拒或未授予时开关保持关闭
+async function toggleNotifications(enabled) {
+  if (!enabled) {
+    notificationPrefs.value = saveNotificationPreferences({ ...notificationPrefs.value, notificationsEnabled: false })
+    return
+  }
+  permissionRequesting.value = true
+  try {
+    permission.value = await ensurePermission()
+    if (permission.value === 'granted') {
+      notificationPrefs.value = saveNotificationPreferences({ ...notificationPrefs.value, notificationsEnabled: true })
+    } else {
+      notificationPrefs.value = saveNotificationPreferences({ ...notificationPrefs.value, notificationsEnabled: false })
+    }
+  } finally {
+    permissionRequesting.value = false
+  }
+}
+
+function toggleSound(enabled) {
+  notificationPrefs.value = saveNotificationPreferences({ ...notificationPrefs.value, soundEnabled: enabled })
+}
 
 function selectPreset(id) {
   const values = settingsForPreset(id)
@@ -168,7 +206,15 @@ async function testDeepseekConnection() {
 
 async function createBackup() { await api.post('/operations/backup'); ElMessage.success('备份已创建并校验') }
 
-onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(() => {}) })
+onMounted(async () => {
+  await loadSettings()
+  monitoringStore.refresh().catch(() => {})
+  // 以浏览器实际权限状态修正显示与持久化偏好（用户可能在浏览器设置中手动撤销）
+  permission.value = permissionState()
+  if (notificationPrefs.value.notificationsEnabled && permission.value !== 'granted') {
+    notificationPrefs.value = saveNotificationPreferences({ ...notificationPrefs.value, notificationsEnabled: false })
+  }
+})
 </script>
 
 <template>
@@ -196,6 +242,29 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
             <el-button v-if="settingsStore.deepseekApiKeyConfigured" type="danger" plain :loading="savingDeepseek" @click="clearDeepseekKey">清除 Key</el-button>
             <el-button type="primary" :loading="savingDeepseek" @click="saveDeepseekKey">保存 DeepSeek Key</el-button>
           </div>
+        </div>
+      </section>
+
+      <section v-if="notificationsAvailable" class="panel" aria-labelledby="notifications-settings-title">
+        <header class="panel__header">
+          <div><h2 id="notifications-settings-title" class="panel__title">触发通知</h2><span class="panel-hint">新触发止损时通过浏览器系统通知与提示音提醒你</span></div>
+          <el-tag :type="permissionTagType" size="small">{{ permissionLabel }}</el-tag>
+        </header>
+        <div class="panel__body settings-body">
+          <div class="notification-options">
+            <label class="notification-option">
+              <span>系统通知</span>
+              <small>开启时将在本次点击中请求通知权限；页面加载不会主动请求。</small>
+              <el-switch :model-value="notificationPrefs.notificationsEnabled" :loading="permissionRequesting" aria-label="系统通知开关" @change="toggleNotifications" />
+            </label>
+            <label class="notification-option">
+              <span>提示音</span>
+              <small>新触发时播放短促提示音（默认关闭），与系统通知独立控制。</small>
+              <el-switch :model-value="notificationPrefs.soundEnabled" aria-label="提示音开关" @change="toggleSound" />
+            </label>
+          </div>
+          <p v-if="permission === 'denied'" class="permission-guidance">通知权限已被浏览器拒绝。请在浏览器站点设置中为本站点重新授权通知后，再打开开关重试；未读徽标与提示音不受影响。</p>
+          <p v-else-if="permission === 'unsupported'" class="permission-guidance">当前浏览器不支持系统通知；未读徽标仍会在标签标题与告警铃铛上显示。</p>
         </div>
       </section>
 
@@ -278,6 +347,12 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
 .number-field em { color: var(--color-text-soft); font-size: 12px; font-style: normal; }
 .settings-actions { display: flex; justify-content: flex-end; }
 .ai-disclosure { margin: 0; color: var(--color-text-soft); font-size: 12px; line-height: 1.7; }
+.notification-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.notification-option { display: grid; gap: 5px; align-content: start; }
+.notification-option > span { font-weight: 650; }
+.notification-option small { color: var(--color-text-muted); font-size: 11px; }
+.notification-option .el-switch { justify-self: start; }
+.permission-guidance { margin: 0; color: var(--color-text-soft); font-size: 12px; line-height: 1.7; }
 .deepseek-key-field { display: grid; gap: 6px; }
 .deepseek-key-field > span { font-weight: 650; }
 .deepseek-key-field small { color: var(--color-text-muted); font-size: 11px; }
@@ -285,5 +360,5 @@ onMounted(async () => { await loadSettings(); monitoringStore.refresh().catch(()
 .manual-refresh { padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
 .manual-refresh h2 { margin: 0; font-size: 15px; }
 .manual-refresh p { margin: 5px 0 0; color: var(--color-text-soft); font-size: 12px; }
-@media (max-width: 767px) { .preset-grid, .advanced-settings, .risk-settings-grid { grid-template-columns: 1fr; } .preset-card { min-height: 110px; } .settings-actions .el-button { width: 100%; } .ai-settings-actions { flex-direction: column-reverse; } .manual-refresh { align-items: stretch; flex-direction: column; } }
+@media (max-width: 767px) { .preset-grid, .advanced-settings, .risk-settings-grid, .notification-options { grid-template-columns: 1fr; } .preset-card { min-height: 110px; } .settings-actions .el-button { width: 100%; } .ai-settings-actions { flex-direction: column-reverse; } .manual-refresh { align-items: stretch; flex-direction: column; } }
 </style>

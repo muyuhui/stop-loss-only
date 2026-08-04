@@ -75,6 +75,7 @@ The frontend starts at `src/main.js`, uses Vue Router and Pinia, and centralizes
 
 - Use `Decimal` for all backend financial arithmetic and explicit quantization for prices and quantities.
 - Only actionable, sufficiently trusted quotes may trigger stop-loss alerts.
+- Browser notifications only present in-app alert snapshots and must not create business facts; permission is requested only on explicit user action, never at page load.
 - Treat portfolio equity as manually maintained; never infer it from market value.
 - A risk preview must not write business records.
 - Keep unavailable or incomplete risk capacity explicit; never display it as zero.

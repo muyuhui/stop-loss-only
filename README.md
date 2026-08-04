@@ -119,9 +119,12 @@ cd ..
 | SQLite 备份、停服恢复、隐私安全诊断 | 支持 |
 | Position 创建、加仓、部分平仓、确认、重新布防 | 推迟，HTTP 返回 `409 feature_not_supported` |
 | CSV 导入导出 | 推迟，HTTP 返回 `409 feature_not_supported` |
-| Webhook、浏览器系统通知、retention 控制 | 推迟，不在稳定 UI 显示且后端拒绝修改 |
+| 浏览器系统通知 | 支持（站内呈现，仅本机） |
+| Webhook、retention 控制 | 推迟，不在稳定 UI 显示且后端拒绝修改 |
 
 `legacy` 和 `shadow-read` 是当前仅有的受支持权威阶段，两者都只向 Holding 写入。可运行 `python backend/db_admin.py shadow-enable`、`shadow-rebuild` 和 `shadow-status` 维护诊断投影。`python backend/db_admin.py cutover` 会在备份或数据库修改前以 `cutover_not_supported` 拒绝，不存在可用于绕过该边界的稳定开关。
+
+**浏览器系统通知（仅本机呈现）**：新触发止损时，页面在检测到此前未通知过的未读告警后发送一条浏览器通知，并可在标签页隐藏期间通过降频轮询继续检测。通知权限只在设置页显式开启通知时于用户手势中请求，页面加载绝不主动请求；权限被拒或浏览器不支持时降级为标签标题未读徽标与站内告警列表，核心流程不受影响。通知偏好（开关、提示音）保存在浏览器 localStorage，与后端设置无关；同一条告警只通知一次，通知发送失败静默处理。
 
 如果数据库已经处于 `new-authoritative`，应用 readiness 会返回 503 且不会启动调度器。请停止服务，找到切换前生成并验证过的 `.db` 与 `.json` manifest，然后运行：
 

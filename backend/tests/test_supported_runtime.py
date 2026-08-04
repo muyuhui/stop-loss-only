@@ -20,6 +20,7 @@ from models import ChannelMetadata, Holding, ImportAudit, MigrationAuthority, Po
 from routers import dashboard, operations, positions, prices, runtime, settings
 from services.monitoring import MonitoringDatabaseBusy
 from services.shadow_projection import begin_shadow_read
+from services.supported_runtime import RuntimeCapabilities
 
 
 @pytest.fixture()
@@ -86,11 +87,12 @@ def _holding() -> Holding:
         "shadow_diagnostics",
         "risk_reads",
         "risk_creation",
+        "browser_notifications",
     ),
     [
-        ("legacy", True, True, False, True, False),
-        ("shadow-read", True, True, True, True, False),
-        ("new-authoritative", False, False, False, True, True),
+        ("legacy", True, True, False, True, False, True),
+        ("shadow-read", True, True, True, True, False, True),
+        ("new-authoritative", False, False, False, True, True, False),
     ],
 )
 def test_runtime_capabilities_are_stage_aware(
@@ -101,6 +103,7 @@ def test_runtime_capabilities_are_stage_aware(
     shadow_diagnostics,
     risk_reads,
     risk_creation,
+    browser_notifications,
 ):
     client, factory = runtime_api
     db = factory()
@@ -123,9 +126,16 @@ def test_runtime_capabilities_are_stage_aware(
             "position_lifecycle_writes": False,
             "csv_portability": False,
             "webhook_delivery": False,
+            "browser_notifications": browser_notifications,
             "ai_holding_reviews": stage in {"legacy", "shadow-read"},
         },
     }
+
+
+def test_default_capabilities_declare_no_delivery_channels():
+    caps = RuntimeCapabilities()
+    assert caps.browser_notifications is False
+    assert caps.webhook_delivery is False
 
 
 def test_runtime_capability_discovery_does_not_create_authority_row(runtime_api):

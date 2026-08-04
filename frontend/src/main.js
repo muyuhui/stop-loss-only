@@ -3,7 +3,7 @@ import {
   ElBadge, ElButton, ElCard, ElCol, ElContainer, ElDatePicker, ElDescriptions,
   ElDescriptionsItem, ElDialog, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon,
   ElInput, ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPageHeader,
-  ElPagination, ElRadio, ElRadioGroup, ElRow, ElSelect, ElTable, ElTableColumn, ElTag,
+  ElPagination, ElRadio, ElRadioGroup, ElRow, ElSelect, ElSwitch, ElTable, ElTableColumn, ElTag,
 } from 'element-plus'
 import 'element-plus/dist/index.css'
 import { createPinia } from 'pinia'
@@ -16,7 +16,7 @@ for (const component of [
   ElBadge, ElButton, ElCard, ElCol, ElContainer, ElDatePicker, ElDescriptions,
   ElDescriptionsItem, ElDialog, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon,
   ElInput, ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPageHeader,
-  ElPagination, ElRadio, ElRadioGroup, ElRow, ElSelect, ElTable, ElTableColumn, ElTag,
+  ElPagination, ElRadio, ElRadioGroup, ElRow, ElSelect, ElSwitch, ElTable, ElTableColumn, ElTag,
 ]) app.component(component.name, component)
 app.use(createPinia())
 app.use(router)

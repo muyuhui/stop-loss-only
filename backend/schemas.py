@@ -527,12 +527,29 @@ class AlertSummary(BaseModel):
     created_at: datetime
 
 
+class LargestLoss(BaseModel):
+    name: str
+    code: str
+    profit_loss_amount: float
+
+
+class MonthSummary(BaseModel):
+    month: str
+    realized_profit_loss: float
+    closed_count: int
+    triggered_count: int
+    stop_adjustment_count: int
+    stop_lowered_count: int
+    largest_loss: LargestLoss | None = None
+
+
 class DashboardResponse(BaseModel):
     active_cost: float
     active_market_value: float
     unrealized_profit_loss: float
     unrealized_profit_loss_pct: float
     realized_profit_loss: float
+    month_summary: MonthSummary
     holding_count: int
     triggered_count: int
     closed_count: int

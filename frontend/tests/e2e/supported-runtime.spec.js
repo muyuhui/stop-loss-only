@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { formatMoney } from '../../src/utils/format.js'
+
 async function assertPageIntegrity(page, browserErrors) {
   await expect(page.locator('body')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
@@ -515,5 +517,31 @@ test('持仓搜索、风险排序与移动端工具栏', async ({ page }, testIn
     const indexB = texts.findIndex((text) => text.includes(nameB))
     return indexA >= 0 && indexB >= 0 ? indexA < indexB : null
   }).toBe(true)
+  await assertPageIntegrity(page, browserErrors)
+})
+
+test('本月账本卡片展示值与仪表盘接口一致', async ({ page }, testInfo) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  const name = `账本验证-${testInfo.project.name}`
+  const created = await page.request.post('/api/holdings', { data: {
+    code: '000031', name, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 9,
+  } })
+  expect(created.ok()).toBe(true)
+  const holdingId = (await created.json()).id
+  const closed = await page.request.post(`/api/holdings/${holdingId}/close`, { data: { close_price: 9 } })
+  expect(closed.ok()).toBe(true)
+
+  const dashboard = await (await page.request.get('/api/dashboard')).json()
+  const summary = dashboard.month_summary
+  expect(summary.realized_profit_loss).toBeLessThanOrEqual(-100)
+
+  await page.goto('/')
+  const ledger = page.locator('.month-ledger')
+  await expect(ledger).toBeVisible()
+  await expect(ledger).toContainText(formatMoney(summary.realized_profit_loss))
+  await expect(ledger).toContainText(`平仓 ${summary.closed_count} 笔`)
+  await expect(ledger).toContainText(summary.month)
   await assertPageIntegrity(page, browserErrors)
 })

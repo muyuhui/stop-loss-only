@@ -17,6 +17,7 @@ import { monitoringTrust, quoteTrust } from '../utils/quoteTrust'
 const emptyDashboard = {
   active_cost: 0, active_market_value: 0, unrealized_profit_loss: 0,
   unrealized_profit_loss_pct: 0, realized_profit_loss: 0,
+  month_summary: null,
   holding_count: 0, triggered_count: 0, closed_count: 0, active_alerts_count: 0,
   today_alert_count: 0, latest_alert: null, holdings: [],
 }
@@ -181,6 +182,36 @@ onUnmounted(() => poller.stop())
         </div>
       </section>
 
+      <section v-if="dashboard.month_summary" class="panel month-ledger" aria-labelledby="month-ledger-title">
+        <header class="panel__header">
+          <div>
+            <h2 id="month-ledger-title" class="panel__title">本月账本</h2>
+            <span class="section-hint">{{ dashboard.month_summary.month }} · 已实现与浮亏分开计算，不合并</span>
+          </div>
+        </header>
+        <div class="month-ledger__grid">
+          <article class="month-ledger__primary">
+            <span>本月已实现盈亏</span>
+            <strong class="number" :class="`tone-${valueTone(dashboard.month_summary.realized_profit_loss)}`">
+              {{ formatMoney(dashboard.month_summary.realized_profit_loss) }}
+            </strong>
+            <small>平仓 {{ dashboard.month_summary.closed_count }} 笔</small>
+          </article>
+          <article class="month-ledger__stats">
+            <span>本月触发 <strong class="number">{{ dashboard.month_summary.triggered_count }}</strong> 次</span>
+            <span>调整止损 <strong class="number">{{ dashboard.month_summary.stop_adjustment_count }}</strong> 次（调低 {{ dashboard.month_summary.stop_lowered_count }}）</span>
+          </article>
+          <article v-if="dashboard.month_summary.largest_loss" class="month-ledger__stats">
+            <span>最大亏损来源：<strong>{{ dashboard.month_summary.largest_loss.name }}</strong>（{{ dashboard.month_summary.largest_loss.code }}）<strong class="number" :class="`tone-${valueTone(dashboard.month_summary.largest_loss.profit_loss_amount)}`">{{ formatMoney(dashboard.month_summary.largest_loss.profit_loss_amount) }}</strong></span>
+          </article>
+          <article class="month-ledger__actions">
+            <span class="month-ledger__reference">当前浮亏（快照）<strong class="number" :class="`tone-${valueTone(dashboard.unrealized_profit_loss)}`">{{ formatMoney(dashboard.unrealized_profit_loss) }}</strong></span>
+            <el-button v-if="dashboard.triggered_count" type="warning" plain @click="router.push('/alerts')">去处置</el-button>
+            <span v-else class="month-ledger__ok">无待处置</span>
+          </article>
+        </div>
+      </section>
+
       <section v-if="triggeredHoldings.length" class="panel disposition-queue" aria-labelledby="disposition-title">
         <header class="panel__header">
           <div><h2 id="disposition-title" class="panel__title">待处置持仓</h2><span class="section-hint">{{ triggeredHoldings.length }} 笔已触发止损，请确认处置（重新布防或平仓）</span></div>
@@ -305,6 +336,16 @@ onUnmounted(() => poller.stop())
 .session-badge { padding: 2px 9px; color: var(--color-brand); background: var(--color-brand-soft); border: 1px solid var(--color-brand); border-radius: 999px; font-size: 11px; font-weight: 650; }
 .quote-freshness { color: var(--color-text-muted); font-size: 11px; }
 .disposition-queue { border-color: #ecd7b5; }
+.month-ledger__grid { padding: 0 20px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.month-ledger__primary { display: grid; gap: 4px; }
+.month-ledger__primary span, .month-ledger__stats span, .month-ledger__reference { color: var(--color-text-soft); font-size: 12px; }
+.month-ledger__primary strong { font-size: 28px; line-height: 1.2; }
+.month-ledger__primary small { color: var(--color-text-muted); font-size: 12px; }
+.month-ledger__stats { display: flex; flex-wrap: wrap; align-content: center; gap: 6px 18px; }
+.month-ledger__stats strong { color: var(--color-text); }
+.month-ledger__actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+.month-ledger__ok { color: var(--color-text-soft); font-size: 12px; }
+@media (max-width: 767px) { .month-ledger__grid { grid-template-columns: 1fr; } }
 .disposition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 0 20px 20px; }
 .disposition-card { padding: 14px; display: grid; gap: 8px; background: var(--color-warning-soft); border: 1px solid #ecd7b5; border-radius: 10px; }
 .disposition-card__identity { display: grid; gap: 2px; }

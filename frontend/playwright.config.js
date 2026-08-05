@@ -4,11 +4,13 @@ import { resolve } from 'node:path'
 
 const backendPort = 18101
 const frontendPort = 14173
+// 配置模块会在 runner 与每个 worker 进程中被再次求值：只有首个求值写入运行根，
+// 保证 global-setup（后端）与测试进程读到同一 runRoot（此前各进程按自身 pid 覆盖）。
 const runRoot = resolve('../.tmp', `playwright-${process.pid}-${Date.now()}`)
 mkdirSync(runRoot, { recursive: true })
-process.env.STOP_LOSS_E2E_RUN_ROOT = runRoot
-process.env.STOP_LOSS_E2E_BACKEND_PORT = String(backendPort)
-process.env.STOP_LOSS_E2E_FRONTEND_PORT = String(frontendPort)
+process.env.STOP_LOSS_E2E_RUN_ROOT ??= runRoot
+process.env.STOP_LOSS_E2E_BACKEND_PORT ??= String(backendPort)
+process.env.STOP_LOSS_E2E_FRONTEND_PORT ??= String(frontendPort)
 
 export default defineConfig({
   testDir: './tests/e2e',

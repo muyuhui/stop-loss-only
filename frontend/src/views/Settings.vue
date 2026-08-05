@@ -39,9 +39,14 @@ const riskSettingsAvailable = computed(() => (
 ))
 const aiReviewAvailable = computed(() => runtimeCapabilities.isAvailable('ai_holding_reviews'))
 const notificationsAvailable = computed(() => runtimeCapabilities.isAvailable('browser_notifications'))
+const desktopNotificationsAvailable = computed(() => runtimeCapabilities.isAvailable('desktop_notifications'))
 const notificationPrefs = ref(getNotificationPreferences())
 const permission = ref(permissionState())
 const permissionRequesting = ref(false)
+const desktopEnabled = ref(false)
+const desktopMode = ref('full')
+const desktopPaused = ref(false)
+const desktopSaving = ref(false)
 const permissionLabels = { granted: '已授予', denied: '被拒绝', default: '未授权', unsupported: '不支持' }
 const permissionLabel = computed(() => permissionLabels[permission.value] || permission.value)
 const permissionTagType = computed(() => ({
@@ -94,10 +99,33 @@ async function loadSettings() {
     portfolioEquity.value = settingsStore.portfolioEquity == null ? null : Number(settingsStore.portfolioEquity)
     portfolioRiskLimitPct.value = Number(settingsStore.portfolioRiskLimitPct)
     defaultPositionRiskLimitPct.value = Number(settingsStore.defaultPositionRiskLimitPct)
+    desktopEnabled.value = settingsStore.desktopNotificationsEnabled
+    desktopMode.value = settingsStore.desktopNotificationMode
+    desktopPaused.value = settingsStore.desktopNotificationsPaused
     advancedOpen.value = selectedPreset.value === 'custom'
     request.succeed()
   } catch {
     request.fail('设置加载失败，请重新尝试。')
+  }
+}
+
+async function saveDesktopSettings() {
+  if (desktopSaving.value) return
+  desktopSaving.value = true
+  try {
+    await settingsStore.saveSettings({
+      desktop_notifications_enabled: desktopEnabled.value,
+      desktop_notification_mode: desktopMode.value,
+      desktop_notifications_paused: desktopPaused.value,
+    })
+    ElMessage.success('桌面通知设置已保存')
+  } catch {
+    desktopEnabled.value = settingsStore.desktopNotificationsEnabled
+    desktopMode.value = settingsStore.desktopNotificationMode
+    desktopPaused.value = settingsStore.desktopNotificationsPaused
+    ElMessage.error('桌面通知设置保存失败，已恢复原值。')
+  } finally {
+    desktopSaving.value = false
   }
 }
 
@@ -274,6 +302,27 @@ onMounted(async () => {
             <div><strong>发送测试通知</strong><small>立即验证浏览器通知与提示音管道，不产生告警。</small></div>
             <el-button :disabled="permission !== 'granted'" @click="sendTest">发送测试通知</el-button>
           </div>
+          <div v-if="desktopNotificationsAvailable" class="desktop-notification-options">
+            <div class="desktop-notification-heading"><strong>桌面通知（本地）</strong><small>浏览器关闭时仍能收到触发提醒，仅本机显示</small></div>
+            <label class="notification-option">
+              <span>启用桌面通知</span>
+              <small>由后端直接发送 Windows 通知，不依赖浏览器标签页是否打开。</small>
+              <el-switch v-model="desktopEnabled" aria-label="桌面通知开关" :loading="desktopSaving" @change="saveDesktopSettings" />
+            </label>
+            <label class="notification-option">
+              <span>通知内容</span>
+              <small>脱敏模式不出现任何持仓名称、代码或价格，适合演示或共享屏幕。</small>
+              <el-radio-group v-model="desktopMode" aria-label="桌面通知内容模式" @change="saveDesktopSettings">
+                <el-radio-button value="full">完整</el-radio-button>
+                <el-radio-button value="redacted">脱敏</el-radio-button>
+              </el-radio-group>
+            </label>
+            <label class="notification-option">
+              <span>演示模式</span>
+              <small>完全暂停所有桌面通知；演示或共享屏幕时打开。</small>
+              <el-switch v-model="desktopPaused" aria-label="演示模式开关" :loading="desktopSaving" @change="saveDesktopSettings" />
+            </label>
+          </div>
           <p v-if="permission === 'denied'" class="permission-guidance">通知权限已被浏览器拒绝。请在浏览器站点设置中为本站点重新授权通知后，再打开开关重试；未读徽标与提示音不受影响。</p>
           <p v-else-if="permission === 'unsupported'" class="permission-guidance">当前浏览器不支持系统通知；未读徽标仍会在标签标题与告警铃铛上显示。</p>
           <p v-else-if="permission === 'default'" class="permission-guidance">请先开启系统通知开关完成授权，再发送测试通知。</p>
@@ -369,6 +418,9 @@ onMounted(async () => {
 .notification-test div { display: grid; gap: 3px; }
 .notification-test strong { font-size: 13px; }
 .notification-test small { color: var(--color-text-muted); font-size: 11px; }
+.desktop-notification-options { margin-top: 16px; padding-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; border-top: 1px dashed var(--color-border); }
+.desktop-notification-heading { grid-column: 1 / -1; display: grid; gap: 3px; }
+.desktop-notification-heading small { color: var(--color-text-muted); font-size: 11px; }
 .deepseek-key-field { display: grid; gap: 6px; }
 .deepseek-key-field > span { font-weight: 650; }
 .deepseek-key-field small { color: var(--color-text-muted); font-size: 11px; }

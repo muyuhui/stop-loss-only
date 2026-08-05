@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from config import config
 from models import Alert, Holding, MonitoringCycle
+from services.desktop_notifier import desktop_notify_triggered
 from services.fixture_adapters import FixtureCalendar
 from services.market_clock import local_now
 from services.price_fetcher import fetch_all_prices, is_market_open
@@ -181,6 +182,7 @@ def run_monitoring_cycle(
             })
 
         succeeded = skipped = failed = 0
+        created_alerts: list[Alert] = []
         for result in quote_results:
             key = (result["asset_type"], str(result["code"]).zfill(6))
             for holding_id in by_key.get(key, []):
@@ -240,14 +242,16 @@ def run_monitoring_cycle(
                             Holding.trigger_sequence: sequence,
                         }, synchronize_session=False)
                         if won:
-                            db.add(Alert(
+                            alert = Alert(
                                 holding_id=holding.id, holding_name=holding.name, holding_code=holding.code,
                                 lifecycle_key=idempotency_key, idempotency_key=idempotency_key, cycle_id=cycle_id,
                                 trigger_price=holding.stop_loss_price, current_price=price,
                                 quote_source=holding.quote_source, quoted_at=holding.quoted_at,
                                 disposition="triggered",
-                            ))
+                            )
+                            db.add(alert)
                             db.flush()
+                            created_alerts.append(alert)
                         succeeded += 1
                 except IntegrityError:
                     failed += 1
@@ -273,6 +277,9 @@ def run_monitoring_cycle(
                 _finish_cycle(db, cycle, status="failed", requested=len(holdings), failed=len(holdings), error_code=error_code)
                 return _response(db, cycle, decision, quote_results)
             raise
+
+        # 告警已提交：桌面通知为可选副作用，失败只记日志，绝不回滚事实。
+        desktop_notify_triggered(db, created_alerts)
 
         cycle = db.get(MonitoringCycle, cycle_id)
         assert cycle is not None

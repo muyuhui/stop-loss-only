@@ -17,9 +17,13 @@ DEFAULTS = {
     "diagnostics_retention_days": 30, "import_max_bytes": 1048576,
     "import_max_rows": 1000, "portfolio_risk_limit_pct": Decimal("5"),
     "default_position_risk_limit_pct": Decimal("1"),
+    "desktop_notifications_enabled": False,
+    "desktop_notification_mode": "full",
+    "desktop_notifications_paused": False,
 }
 INTEGER_KEYS = {"poll_interval", "monitor_interval", "quote_retention_days", "diagnostics_retention_days", "import_max_bytes", "import_max_rows"}
 DECIMAL_KEYS = {"portfolio_equity", "portfolio_risk_limit_pct", "default_position_risk_limit_pct"}
+BOOL_KEYS = {"desktop_notifications_enabled", "desktop_notifications_paused"}
 PERSISTED_SETTING_KEYS = set(DEFAULTS) | {"portfolio_equity", "portfolio_equity_updated_at"}
 UNSUPPORTED_FIELDS = {
     "webhook_enabled", "webhook_target_url", "webhook_secret", "clear_webhook_secret",
@@ -34,8 +38,12 @@ def get_effective_settings(db: Session) -> dict:
     for row in rows:
         if row.key in INTEGER_KEYS:
             result[row.key] = int(row.value)
+        elif row.key in BOOL_KEYS:
+            result[row.key] = row.value == "True"
         elif row.key in DECIMAL_KEYS:
             result[row.key] = Decimal(row.value)
+        elif row.key == "desktop_notification_mode":
+            result[row.key] = row.value
         elif row.key == "portfolio_equity_updated_at":
             result[row.key] = datetime.fromisoformat(row.value)
     result.setdefault("portfolio_equity", None)

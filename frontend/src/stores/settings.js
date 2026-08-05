@@ -10,6 +10,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const defaultPositionRiskLimitPct = ref('1')
   const portfolioEquityUpdatedAt = ref(null)
   const deepseekApiKeyConfigured = ref(false)
+  const desktopNotificationsEnabled = ref(false)
+  const desktopNotificationMode = ref('full')
+  const desktopNotificationsPaused = ref(false)
 
   function apply(data) {
     pollInterval.value = data.poll_interval || 30
@@ -19,6 +22,9 @@ export const useSettingsStore = defineStore('settings', () => {
     defaultPositionRiskLimitPct.value = data.default_position_risk_limit_pct ?? '1'
     portfolioEquityUpdatedAt.value = data.portfolio_equity_updated_at
     deepseekApiKeyConfigured.value = data.deepseek_api_key_configured === true
+    desktopNotificationsEnabled.value = data.desktop_notifications_enabled === true
+    desktopNotificationMode.value = data.desktop_notification_mode === 'redacted' ? 'redacted' : 'full'
+    desktopNotificationsPaused.value = data.desktop_notifications_paused === true
   }
 
   async function fetchSettings() {
@@ -40,6 +46,7 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     pollInterval, monitorInterval, portfolioEquity, portfolioRiskLimitPct,
     defaultPositionRiskLimitPct, portfolioEquityUpdatedAt, deepseekApiKeyConfigured,
+    desktopNotificationsEnabled, desktopNotificationMode, desktopNotificationsPaused,
     fetchSettings, saveSettings,
   }
 })

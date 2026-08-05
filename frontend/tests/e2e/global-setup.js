@@ -50,6 +50,8 @@ export default async function globalSetup() {
       env: {
         ...process.env,
         STOP_LOSS_DATABASE_URL: `sqlite:///${resolve(runRoot, 'e2e.db').replaceAll('\\', '/')}`,
+        STOP_LOSS_DESKTOP_NOTIFY_FIXTURE: '1',
+        STOP_LOSS_DESKTOP_NOTIFY_PATH: resolve(runRoot, 'desktop-notify.jsonl'),
         STOP_LOSS_BACKEND_PORT: backendPort,
         STOP_LOSS_SCHEDULER_ENABLED: '0',
         STOP_LOSS_FIXTURE_PRICE: '8.8',

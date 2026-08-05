@@ -88,11 +88,12 @@ def _holding() -> Holding:
         "risk_reads",
         "risk_creation",
         "browser_notifications",
+        "desktop_notifications",
     ),
     [
-        ("legacy", True, True, False, True, False, True),
-        ("shadow-read", True, True, True, True, False, True),
-        ("new-authoritative", False, False, False, True, True, False),
+        ("legacy", True, True, False, True, False, True, True),
+        ("shadow-read", True, True, True, True, False, True, True),
+        ("new-authoritative", False, False, False, True, True, False, False),
     ],
 )
 def test_runtime_capabilities_are_stage_aware(
@@ -104,6 +105,7 @@ def test_runtime_capabilities_are_stage_aware(
     risk_reads,
     risk_creation,
     browser_notifications,
+    desktop_notifications,
 ):
     client, factory = runtime_api
     db = factory()
@@ -127,6 +129,7 @@ def test_runtime_capabilities_are_stage_aware(
             "csv_portability": False,
             "webhook_delivery": False,
             "browser_notifications": browser_notifications,
+            "desktop_notifications": desktop_notifications,
             "ai_holding_reviews": stage in {"legacy", "shadow-read"},
         },
     }
@@ -135,6 +138,7 @@ def test_runtime_capabilities_are_stage_aware(
 def test_default_capabilities_declare_no_delivery_channels():
     caps = RuntimeCapabilities()
     assert caps.browser_notifications is False
+    assert caps.desktop_notifications is False
     assert caps.webhook_delivery is False
 
 

@@ -115,6 +115,9 @@ class SettingsResponse(BaseModel):
     default_position_risk_limit_pct: Decimal = Decimal("1")
     portfolio_equity_updated_at: datetime | None = None
     deepseek_api_key_configured: bool = False
+    desktop_notifications_enabled: bool = False
+    desktop_notification_mode: Literal["full", "redacted"] = "full"
+    desktop_notifications_paused: bool = False
 
 
 class SettingsUpdate(BaseModel):
@@ -134,6 +137,9 @@ class SettingsUpdate(BaseModel):
     default_position_risk_limit_pct: Decimal | None = Field(None, gt=0, le=100)
     deepseek_api_key: str | None = Field(None, min_length=16, max_length=512)
     clear_deepseek_api_key: bool = False
+    desktop_notifications_enabled: bool | None = None
+    desktop_notification_mode: Literal["full", "redacted"] | None = None
+    desktop_notifications_paused: bool | None = None
 
 
 AIReviewAction = Literal[
@@ -434,6 +440,7 @@ class RuntimeCapabilityMap(BaseModel):
     csv_portability: bool
     webhook_delivery: bool
     browser_notifications: bool
+    desktop_notifications: bool
     ai_holding_reviews: bool
 
 

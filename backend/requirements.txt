@@ -6,4 +6,5 @@ apscheduler==3.10.4
 akshare==1.18.70
 tzdata==2025.2
 httpx==0.28.1
+winotify==1.1.0
 pywin32==312

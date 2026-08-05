@@ -292,6 +292,25 @@ def test_runtime_settings_defaults_validation_and_persistence(api, monkeypatch):
     assert client.get("/api/settings").json()["poll_interval"] == 45
 
 
+def test_desktop_notification_settings_round_trip(api):
+    client, _, _ = api
+    defaults = client.get("/api/settings").json()
+    assert defaults["desktop_notifications_enabled"] is False
+    assert defaults["desktop_notification_mode"] == "full"
+    assert defaults["desktop_notifications_paused"] is False
+    updated = client.put("/api/settings", json={
+        "desktop_notifications_enabled": True,
+        "desktop_notification_mode": "redacted",
+        "desktop_notifications_paused": True,
+    })
+    assert updated.status_code == 200
+    reread = client.get("/api/settings").json()
+    assert reread["desktop_notifications_enabled"] is True
+    assert reread["desktop_notification_mode"] == "redacted"
+    assert reread["desktop_notifications_paused"] is True
+    assert client.put("/api/settings", json={"desktop_notification_mode": "loud"}).status_code == 422
+
+
 def test_manual_refresh_partial_and_fatal_contract(api, monkeypatch):
     client, _, _ = api
     partial = {

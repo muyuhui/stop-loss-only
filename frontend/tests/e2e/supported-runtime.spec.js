@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { expect, test } from '@playwright/test'
 
 import { formatMoney } from '../../src/utils/format.js'
@@ -543,5 +546,70 @@ test('本月账本卡片展示值与仪表盘接口一致', async ({ page }, tes
   await expect(ledger).toContainText(formatMoney(summary.realized_profit_loss))
   await expect(ledger).toContainText(`平仓 ${summary.closed_count} 笔`)
   await expect(ledger).toContainText(summary.month)
+  await assertPageIntegrity(page, browserErrors)
+})
+
+test('桌面通知：脱敏内容、完整模式与演示暂停', async ({ page }, testInfo) => {
+  const browserErrors = []
+  trackBrowserErrors(page, browserErrors)
+  const name = `桌面通知验证-${testInfo.project.name}`
+  const notifyPath = resolve(process.env.STOP_LOSS_E2E_RUN_ROOT, 'desktop-notify.jsonl')
+  const readLines = () => {
+    try {
+      return readFileSync(notifyPath, 'utf-8').trim().split('\n').filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
+  // 开启桌面通知并选择脱敏模式
+  const settings = await page.request.put('/api/settings', { data: {
+    desktop_notifications_enabled: true,
+    desktop_notification_mode: 'redacted',
+    desktop_notifications_paused: false,
+  } })
+  expect(settings.ok()).toBe(true)
+
+  // 触发一笔止损（fixture 价 8.8 < 止损 9）
+  const created = await page.request.post('/api/holdings', { data: {
+    code: '000041', name, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 9,
+  } })
+  expect(created.ok()).toBe(true)
+  const refresh = await page.request.post('/api/prices/refresh')
+  expect(refresh.ok()).toBe(true)
+
+  await expect.poll(() => readLines().length).toBeGreaterThan(0)
+  const redacted = JSON.parse(readLines().at(-1))
+  expect(redacted.mode).toBe('redacted')
+  expect(redacted.title).toBe('提醒')
+  expect(redacted.body).toContain('待处理')
+  for (const token of [name, '000041', '8.8', '止损']) {
+    expect(redacted.body).not.toContain(token)
+  }
+
+  // 切换完整模式：下一笔触发包含持仓信息
+  const fullSettings = await page.request.put('/api/settings', { data: { desktop_notification_mode: 'full' } })
+  expect(fullSettings.ok()).toBe(true)
+  await page.request.post('/api/holdings', { data: {
+    code: '000042', name: `${name}-B`, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 9,
+  } })
+  await page.request.post('/api/prices/refresh')
+  await expect.poll(() => readLines().length).toBeGreaterThanOrEqual(2)
+  const full = JSON.parse(readLines().at(-1))
+  expect(full.mode).toBe('full')
+  expect(full.body).toContain(name)
+  expect(full.body).toContain('000042')
+
+  // 演示暂停：再触发不再追加通知记录
+  await page.request.put('/api/settings', { data: { desktop_notifications_paused: true } })
+  const before = readLines().length
+  await page.request.post('/api/holdings', { data: {
+    code: '000043', name: `${name}-C`, type: 'stock', buy_price: 10, quantity: 100,
+    buy_date: '2026-07-24', stop_loss_method: 'fixed', stop_loss_value: 9,
+  } })
+  await page.request.post('/api/prices/refresh')
+  expect(readLines().length).toBe(before)
   await assertPageIntegrity(page, browserErrors)
 })

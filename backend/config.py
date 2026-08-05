@@ -36,6 +36,8 @@ class AppConfig:
     deepseek_connect_timeout_seconds: float = float(os.getenv("STOP_LOSS_DEEPSEEK_CONNECT_TIMEOUT", "5"))
     deepseek_total_timeout_seconds: float = float(os.getenv("STOP_LOSS_DEEPSEEK_TOTAL_TIMEOUT", "45"))
     deepseek_fixture_enabled: bool = os.getenv("STOP_LOSS_DEEPSEEK_FIXTURE", "0") == "1"
+    desktop_notify_fixture_enabled: bool = os.getenv("STOP_LOSS_DESKTOP_NOTIFY_FIXTURE", "0") == "1"
+    desktop_notify_path: str | None = os.getenv("STOP_LOSS_DESKTOP_NOTIFY_PATH")
 
 
 config = AppConfig()
